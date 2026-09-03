@@ -95,7 +95,7 @@ CasaOS is powered by Docker under the hood. You can deploy this bot in under 2 m
    name: free-games-bot
    services:
      bot:
-       image: free-games-bot:latest
+       image: ghcr.io/andrea-01/free-games-bot:latest
        container_name: free-games-bot
        restart: unless-stopped
        environment:
@@ -108,8 +108,6 @@ CasaOS is powered by Docker under the hood. You can deploy this bot in under 2 m
          - /DATA/AppData/free-games-bot:/app/data
    ```
 5. Click **Submit** and click **Install**.
-
-> **Note:** If building locally on the CasaOS server, run `docker build -t free-games-bot:latest .` once in the repo folder, or see Option B below.
 
 ### Option B: Via Terminal / SSH on CasaOS (Recommended)
 1. SSH into your CasaOS server or open CasaOS Terminal:

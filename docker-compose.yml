@@ -1,6 +1,6 @@
 services:
   free-games-bot:
-    build: .
+    image: ghcr.io/andrea-01/free-games-bot:latest
     container_name: free-games-bot
     restart: unless-stopped
     env_file:
