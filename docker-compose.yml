@@ -1,0 +1,9 @@
+services:
+  free-games-bot:
+    build: .
+    container_name: free-games-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
