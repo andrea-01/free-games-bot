@@ -139,6 +139,15 @@ class Database:
 
         return current_stores
 
+    async def set_user_stores(self, chat_id: int, stores: Set[str]) -> Set[str]:
+        """Set enabled stores for a user directly."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("""
+                UPDATE subscribers SET enabled_stores = ? WHERE chat_id = ?;
+            """, (json.dumps(list(stores)), chat_id))
+            await db.commit()
+        return stores
+
     async def is_deal_allowed_for_user(self, chat_id: int, deal_store: str) -> bool:
         """Check if the given deal's store is enabled by the user."""
         user_stores = await self.get_user_stores(chat_id)

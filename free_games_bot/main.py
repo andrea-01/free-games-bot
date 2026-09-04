@@ -14,6 +14,9 @@ def setup_logging():
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         level=getattr(logging, config.log_level, logging.INFO),
     )
+    # Silence routine HTTP polling request logs from httpx/httpcore
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 async def test_fetch():
     """Fetch deals, enrich them, and display them in the terminal."""
@@ -65,7 +68,7 @@ def run_bot():
 
     app = bot_service.build_application()
     logger.info("Bot application initialized. Starting polling...")
-    app.run_polling()
+    app.run_polling(timeout=30)
 
 def main():
     parser = argparse.ArgumentParser(description="Free Games Telegram Bot")

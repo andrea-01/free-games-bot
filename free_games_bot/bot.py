@@ -81,6 +81,9 @@ class FreeGamesBot:
         # Register callback query handlers for interactive store toggle buttons
         app.add_handler(CallbackQueryHandler(self.settings_callback, pattern=r"^(toggle|preset):"))
 
+        # Register global error handler
+        app.add_error_handler(self.error_handler)
+
         # Setup background periodic checker
         if app.job_queue:
             interval_seconds = max(60, config.check_interval_minutes * 60)
@@ -94,6 +97,10 @@ class FreeGamesBot:
 
         self.app = app
         return app
+
+    async def error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Log the error that occurred during an update."""
+        logger.error("Exception occurred while handling an update:", exc_info=context.error)
 
     # --- Command Handlers ---
 
@@ -167,20 +174,9 @@ class FreeGamesBot:
             store = data.split(":", 1)[1]
             enabled_stores = await self.db.toggle_user_store(chat_id, store)
         elif data == "preset:all":
-            enabled_stores = set(ALL_STORES)
-            async with self.db as _:
-                pass
-            # Update in DB
-            import aiosqlite
-            async with aiosqlite.connect(self.db.db_path) as db:
-                await db.execute("UPDATE subscribers SET enabled_stores = ? WHERE chat_id = ?;", (json.dumps(list(enabled_stores)), chat_id))
-                await db.commit()
+            enabled_stores = await self.db.set_user_stores(chat_id, set(ALL_STORES))
         elif data == "preset:none":
-            enabled_stores = set()
-            import aiosqlite
-            async with aiosqlite.connect(self.db.db_path) as db:
-                await db.execute("UPDATE subscribers SET enabled_stores = ? WHERE chat_id = ?;", (json.dumps([]), chat_id))
-                await db.commit()
+            enabled_stores = await self.db.set_user_stores(chat_id, set())
         else:
             return
 

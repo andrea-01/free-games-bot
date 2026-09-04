@@ -73,6 +73,15 @@ async def test_database_store_preferences(tmp_path):
     assert "Steam" in new_stores2
     assert await db.is_deal_allowed_for_user(12345, "Steam") is True
 
+    # Test set_user_stores directly (Enable All / Disable All)
+    cleared = await db.set_user_stores(12345, set())
+    assert len(cleared) == 0
+    assert await db.is_deal_allowed_for_user(12345, "Epic Games") is False
+
+    all_set = await db.set_user_stores(12345, set(ALL_STORES))
+    assert len(all_set) == len(ALL_STORES)
+    assert await db.is_deal_allowed_for_user(12345, "Epic Games") is True
+
 def test_normalize_deal_store():
     assert normalize_deal_store("Epic Games") == "Epic Games"
     assert normalize_deal_store("Steam") == "Steam"
