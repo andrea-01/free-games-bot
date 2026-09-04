@@ -123,7 +123,7 @@ services:
     hostname: free-games-bot
     image: ghcr.io/andrea-01/free-games-bot:latest
     labels:
-      icon: https://github.com/andrea-01/free-games-bot/blob/main/assets/bot_avatar.jpg?raw=true
+      icon: https://github.com/andrea-01/free-games-bot/blob/main/assets/casaos_icon.png?raw=true
     restart: unless-stopped
     volumes:
       - type: bind
@@ -138,7 +138,7 @@ x-casaos:
   author: self
   category: self
   hostname: ""
-  icon: https://github.com/andrea-01/free-games-bot/blob/main/assets/bot_avatar.jpg?raw=true
+  icon: https://github.com/andrea-01/free-games-bot/blob/main/assets/casaos_icon.png?raw=true
   index: /
   is_uncontrolled: false
   port_map: ""
