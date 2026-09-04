@@ -101,6 +101,8 @@ class FreeGamesBot:
         app.add_handler(CommandHandler("minprice", self.minprice_command))
         app.add_handler(CommandHandler("maxprice", self.maxprice_command))
         app.add_handler(CommandHandler(["recap", "riassunto"], self.recap_command))
+        app.add_handler(CommandHandler(["nofilter_recap", "nofilterrecap", "allrecap"], self.nofilter_recap_command))
+        app.add_handler(MessageHandler(filters.Regex(r"^/nofilter-recap(\s|$)"), self.nofilter_recap_command))
         app.add_handler(CommandHandler("subscribe", self.subscribe_command))
         app.add_handler(CommandHandler("unsubscribe", self.unsubscribe_command))
 
@@ -161,6 +163,7 @@ class FreeGamesBot:
                 "• /deals - Tutte le offerte (gratis e sconti)\n"
                 "• /recap - Recap offerte personalizzate (ore 20:00)\n"
                 "• /nofilter-free - Tutti i giochi gratis senza filtri\n"
+                "• /nofilter-recap - Recap di tutte le offerte senza filtri\n"
                 "• /settings - Personalizza filtri, store e prezzi\n"
                 "• /help - Elenco di tutti i comandi"
             )
@@ -208,6 +211,7 @@ class FreeGamesBot:
             "/deals - Mostra tutte le offerte (gratis e sconti) filtrate\n"
             "/recap - Riepilogo serale delle offerte pertinenti attive\n"
             "/nofilter_free - Tutti i giochi gratuiti disponibili senza filtri\n"
+            "/nofilter_recap - Riepilogo completo di tutte le offerte senza filtri\n"
             "/settings - Configura store, generi, soglie di prezzo e notifiche\n"
             "/epic & /steam - Promozioni per store\n"
             "/check - Cerca nuovi arrivi non ancora ricevuti\n"
@@ -241,6 +245,7 @@ class FreeGamesBot:
             "/deals - Mostra l'elenco di tutte le offerte (gratis e sconti) filtrate\n"
             "/recap - Riepilogo compatto serale delle offerte attive (inviato alle 20:00)\n"
             "/nofilter-free - Elenco di tutti i giochi gratuiti disponibili SENZA alcun filtro\n"
+            "/nofilter-recap - Riepilogo compatto di TUTTE le offerte attive SENZA alcun filtro\n"
             "/settings - Pannello impostazioni (Store, Categorie, Prezzi, Qualità & Notifiche)\n"
             "/minprice [euro] - Imposta il valore minimo del gioco (es. <code>/minprice 10</code> o <code>/minprice 0</code>)\n"
             "/maxprice [euro] - Imposta il prezzo max per offerte a pagamento (es. <code>/maxprice 5</code> o <code>/maxprice 0</code>)\n"
@@ -759,6 +764,37 @@ class FreeGamesBot:
             filtered_deals.append(d)
 
         chunks = format_evening_recap(filtered_deals)
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
+
+        for chunk in chunks:
+            await msg.reply_text(
+                chunk,
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True,
+            )
+
+    async def nofilter_recap_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Gestisce /nofilter_recap: genera il riepilogo di TUTTE le offerte attive (gratis e sconti) senza filtri."""
+        chat_id = update.effective_chat.id
+        user = update.effective_user
+        logger.info(f"[COMANDO /nofilter_recap] Utente: @{user.username if user else 'N/A'} ({chat_id})")
+
+        msg = update.effective_message
+        if not msg:
+            return
+        status_msg = await msg.reply_text("🔍 <i>Recupero del recap di TUTTE le offerte attive senza filtri...</i>", parse_mode=ParseMode.HTML)
+
+        all_deals = await self.deal_manager.fetch_all_deals(
+            max_sale_price=999.0,
+            min_stock_price=0.0,
+        )
+
+        active_deals = [d for d in all_deals if not d.is_upcoming]
+
+        chunks = format_evening_recap(active_deals, is_nofilter=True)
         try:
             await status_msg.delete()
         except Exception:

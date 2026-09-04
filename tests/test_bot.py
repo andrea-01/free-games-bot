@@ -122,3 +122,46 @@ async def test_settings_toggle_sub_callback(tmp_path):
     msg_text2 = query.edit_message_text.call_args[1]["text"]
     assert "🔕 <b>DISATTIVATE</b>" in msg_text2
 
+@pytest.mark.asyncio
+async def test_nofilter_recap_command(tmp_path):
+    from unittest.mock import AsyncMock, MagicMock
+    from free_games_bot.database import Database
+    from free_games_bot.fetchers.manager import DealManager
+    from free_games_bot.models import GameDeal
+
+    db = Database(db_path=str(tmp_path / "test_nofilter_recap.db"))
+    await db.init_db()
+
+    deal_mgr = DealManager()
+    sample_deal = GameDeal(
+        id="test-deal-nofilter",
+        title="Super Indie Adventures",
+        store="Steam",
+        stock_price="14,99 €",
+        sale_price_value=0.0,
+        store_url="https://store.steampowered.com/test",
+        rating_percent=88,
+        reviews_count=2500,
+        genres=["Indie"],
+    )
+    deal_mgr.fetch_all_deals = AsyncMock(return_value=[sample_deal])
+
+    bot = FreeGamesBot(db=db, deal_manager=deal_mgr)
+
+    update = MagicMock()
+    update.effective_chat.id = 88888
+    update.effective_user.username = "nofilter_user"
+    status_msg = MagicMock()
+    status_msg.delete = AsyncMock()
+    update.effective_message.reply_text = AsyncMock(side_effect=[status_msg, None])
+
+    context = MagicMock()
+
+    await bot.nofilter_recap_command(update, context)
+
+    assert update.effective_message.reply_text.call_count == 2
+    sent_recap = update.effective_message.reply_text.call_args[0][0]
+    assert "RECAP OFFERTE PC (SENZA FILTRI)" in sent_recap
+    assert "Super Indie Adventures" in sent_recap
+    assert "Riscatta su Steam" in sent_recap
+

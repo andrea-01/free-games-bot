@@ -159,9 +159,9 @@ def build_main_settings_keyboard(is_subscribed: bool = True) -> InlineKeyboardMa
         ]
     ])
 
-def format_evening_recap(deals: List[GameDeal]) -> List[str]:
+def format_evening_recap(deals: List[GameDeal], is_nofilter: bool = False) -> List[str]:
     """
-    Format active deals into a compact evening recap list (divided into Free and Discounted).
+    Format active deals into a compact recap list (divided into Free and Discounted).
     Each game occupies at most 2 lines:
     Line 1: [Icon] [Title] • [Price / Discount]
     Line 2: [⭐ Rating] • [Riscatta/Vedi su Store link]
@@ -172,10 +172,18 @@ def format_evening_recap(deals: List[GameDeal]) -> List[str]:
 
     date_str = datetime.now(ZoneInfo("Europe/Rome")).strftime("%d/%m/%Y")
 
-    header = (
-        f"🌙 <b>RECAP SERALE OFFERTE PC</b> — <i>{date_str}</i>\n"
-        "<i>Ecco il riepilogo delle migliori offerte attive secondo i tuoi filtri:</i>\n\n"
-    )
+    if is_nofilter:
+        header = (
+            f"🌍 <b>RECAP OFFERTE PC (SENZA FILTRI)</b> — <i>{date_str}</i>\n"
+            "<i>Ecco l'elenco completo di tutte le offerte e giochi gratis attivi senza filtri:</i>\n\n"
+        )
+        footer = "\n💡 <i>Visualizza il recap personalizzato secondo i tuoi filtri con /recap</i>"
+    else:
+        header = (
+            f"🌙 <b>RECAP SERALE OFFERTE PC</b> — <i>{date_str}</i>\n"
+            "<i>Ecco il riepilogo delle migliori offerte attive secondo i tuoi filtri:</i>\n\n"
+        )
+        footer = "\n💡 <i>Personalizza o disattiva il recap serale dalle impostazioni con /settings</i>"
 
     items: List[str] = []
 
@@ -247,10 +255,9 @@ def format_evening_recap(deals: List[GameDeal]) -> List[str]:
 
             items.append(f"{line1}\n{line2}\n")
 
-    footer = "\n💡 <i>Personalizza o disattiva il recap serale dalle impostazioni con /settings</i>"
-
     if not items:
-        return [header + "ℹ️ Nessuna offerta pertinente attiva al momento secondo i tuoi filtri.\n" + footer]
+        empty_msg = "ℹ️ Nessuna offerta attiva trovata al momento.\n" if is_nofilter else "ℹ️ Nessuna offerta pertinente attiva al momento secondo i tuoi filtri.\n"
+        return [header + empty_msg + footer]
 
     chunks: List[str] = []
     current_chunk = header

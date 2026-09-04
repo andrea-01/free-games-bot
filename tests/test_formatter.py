@@ -206,3 +206,28 @@ def test_format_evening_recap():
 
     # Check category icons (Action -> ⚔️ or RPG -> 🛡️)
     assert "⚔️" in text or "🛡️" in text
+
+def test_format_evening_recap_nofilter():
+    from free_games_bot.formatter import format_evening_recap
+
+    empty_recap = format_evening_recap([], is_nofilter=True)
+    assert len(empty_recap) == 1
+    assert "RECAP OFFERTE PC (SENZA FILTRI)" in empty_recap[0]
+    assert "Nessuna offerta attiva trovata al momento" in empty_recap[0]
+
+    free_deal = GameDeal(
+        id="free-1",
+        title="Death Stranding",
+        store="Epic Games",
+        stock_price="39,99 €",
+        sale_price_value=0.0,
+        store_url="https://store.epicgames.com/death-stranding",
+        rating_percent=93,
+        reviews_count=85000,
+        genres=["Action", "Adventure"],
+    )
+    recap = format_evening_recap([free_deal], is_nofilter=True)
+    assert len(recap) == 1
+    assert "RECAP OFFERTE PC (SENZA FILTRI)" in recap[0]
+    assert "Death Stranding" in recap[0]
+    assert "Riscatta su Epic Games" in recap[0]

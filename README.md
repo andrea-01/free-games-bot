@@ -38,6 +38,7 @@ Un bot Telegram avanzato per monitorare e ricevere notifiche istantanee sui gioc
 | `/deals` | Mostra **tutte le offerte** (giochi gratis + sconti) secondo i tuoi filtri |
 | `/recap` | Mostra il **riepilogo serale compatto** delle offerte attive pertinenti |
 | `/nofilter_free` (o `/nofilter-free`) | Mostra **tutti i giochi gratuiti disponibili senza alcun filtro** |
+| `/nofilter_recap` (o `/nofilter-recap`) | Mostra il **recap compatto di TUTTE le offerte attive senza alcun filtro** |
 | `/settings` | Pannello interattivo per gestire Notifiche, Store, Categorie, Prezzi e Filtro Qualità |
 | `/minprice [€]` | Imposta rapidamente il listino minimo (es. `/minprice 10` o `/minprice 0`) |
 | `/maxprice [€]` | Imposta il prezzo max per offerte a pagamento (es. `/maxprice 5` o `/maxprice 0`) |
