@@ -7,8 +7,10 @@ from telegram.ext import (
     Application,
     ApplicationBuilder,
     CommandHandler,
+    MessageHandler,
     CallbackQueryHandler,
     ContextTypes,
+    filters,
 )
 from free_games_bot.config import config
 from free_games_bot.database import Database, ALL_STORES, ALL_CATEGORIES
@@ -76,7 +78,9 @@ class FreeGamesBot:
         app.add_handler(CommandHandler("help", self.help_command))
         app.add_handler(CommandHandler(["free", "giochi"], self.free_command))
         app.add_handler(CommandHandler("deals", self.deals_command))
-        app.add_handler(CommandHandler(["nofilter_free", "nofilterfree", "nofilter-free", "allfree"], self.nofilter_free_command))
+        app.add_handler(CommandHandler(["nofilter_free", "nofilterfree", "allfree"], self.nofilter_free_command))
+        # Supporta anche la variante con trattino /nofilter-free
+        app.add_handler(MessageHandler(filters.Regex(r"^/nofilter-free(\s|$)"), self.nofilter_free_command))
         app.add_handler(CommandHandler("epic", self.epic_command))
         app.add_handler(CommandHandler("steam", self.steam_command))
         app.add_handler(CommandHandler("check", self.check_command))
