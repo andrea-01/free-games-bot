@@ -1,5 +1,6 @@
 """Telegram bot handlers, Italian localization, activity logging, and filtering by store, category, and price."""
 import logging
+from pathlib import Path
 from typing import Optional, Set
 from telegram import Update
 from telegram.constants import ParseMode
@@ -148,25 +149,37 @@ class FreeGamesBot:
 
         welcome_text = (
             f"👋 <b>Benvenuto, {user.first_name if user else 'Gamer'}!</b>\n\n"
-            "🎮 <b>Free Games Bot</b> è attivo e pronto a segnalarti tutti i giochi gratuiti e le migliori offerte per PC!\n\n"
-            "✨ <b>Caratteristiche:</b>\n"
-            "• Locandine ad alta risoluzione (da SteamGridDB e store)\n"
+            "🎮 <b>Free Games Bot</b> monitora e ti segnala in tempo reale tutti i giochi gratuiti e le migliori offerte per PC!\n\n"
+            "✨ <b>Funzionalità:</b>\n"
+            "• Locandine ad alta risoluzione (SteamGridDB e store)\n"
             "• Prezzi e sconti ufficiali in <b>Euro (€)</b>\n"
-            "• Dati completi (Anno di uscita, generi, modalità singolo/multiplayer, recensioni)\n"
-            "• Link diretti alle pagine degli store in lingua italiana\n"
-            "• Filtri avanzati per <b>Store</b>, <b>Categorie</b>, <b>Prezzi</b> e <b>Anti-Spam/Qualità</b> (/settings)\n"
-            "• Avvisi automatici sui nuovi drop di giochi gratuiti\n\n"
+            "• Dati completi (Anno, generi, singolo/multiplayer, recensioni)\n"
+            "• Link diretti agli store in lingua italiana\n"
+            "• Filtri avanzati per <b>Store</b>, <b>Categorie</b>, <b>Prezzi</b> e <b>Anti-Spam</b> (/settings)\n"
+            "• Notifiche automatiche sui nuovi giochi gratis\n\n"
             "📌 <b>Comandi principali:</b>\n"
-            "/free - Mostra solo i giochi 100% gratis secondo i tuoi filtri\n"
-            "/deals - Mostra tutte le offerte (gratis e sconti) secondo i filtri\n"
-            "/nofilter-free - Tutti i giochi gratuiti disponibili senza alcun filtro\n"
+            "/free - Mostra i giochi 100% gratis secondo i tuoi filtri\n"
+            "/deals - Mostra tutte le offerte (gratis e sconti) filtrate\n"
+            "/nofilter-free - Tutti i giochi gratuiti disponibili senza filtri\n"
             "/settings - Configura store, generi, soglie di prezzo e qualità\n"
-            "/epic - Mostra promozioni di Epic Games\n"
-            "/steam - Mostra promozioni Steam\n"
-            "/check - Controlla nuovi arrivi non ancora ricevuti\n"
-            "/help - Mostra la guida completa dei comandi"
+            "/epic & /steam - Promozioni per store\n"
+            "/check - Cerca nuovi arrivi non ancora ricevuti\n"
+            "/help - Guida completa ai comandi"
         )
         if update.effective_message:
+            banner_path = Path("assets/welcome_banner.jpg")
+            if banner_path.exists():
+                try:
+                    with open(banner_path, "rb") as f:
+                        await update.effective_message.reply_photo(
+                            photo=f,
+                            caption=welcome_text,
+                            parse_mode=ParseMode.HTML,
+                        )
+                        return
+                except Exception as e:
+                    logger.warning(f"Impossibile inviare immagine di benvenuto: {e}")
+
             await update.effective_message.reply_text(welcome_text, parse_mode=ParseMode.HTML)
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
