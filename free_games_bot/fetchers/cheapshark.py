@@ -66,6 +66,14 @@ class CheapSharkFetcher(BaseFetcher):
 
             stock_price_str = format_price_eur(normal_price)
 
+            steam_rating = item.get("steamRatingPercent")
+            steam_reviews = item.get("steamRatingCount")
+            metacritic = item.get("metacriticScore")
+
+            rating_pct = int(steam_rating) if steam_rating and steam_rating != "0" else None
+            reviews_cnt = int(steam_reviews) if steam_reviews and steam_reviews != "0" else None
+            meta_score = int(metacritic) if metacritic and metacritic != "0" else None
+
             deals.append(
                 GameDeal(
                     id=f"cs_{deal_id[:16]}",
@@ -76,6 +84,9 @@ class CheapSharkFetcher(BaseFetcher):
                     cover_url=item.get("thumb"),
                     sale_price_value=sale_price,
                     steam_appid=appid_int,
+                    rating_percent=rating_pct,
+                    reviews_count=reviews_cnt,
+                    metacritic_score=meta_score,
                 )
             )
 

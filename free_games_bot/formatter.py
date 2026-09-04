@@ -59,6 +59,13 @@ def format_deal_message(deal: GameDeal) -> Tuple[str, InlineKeyboardMarkup]:
     modes_str = ", ".join(deal.player_modes[:3]) if deal.player_modes else "Giocatore singolo"
     lines.append(f"👥 <b>Modalità:</b> {html.escape(modes_str)}")
 
+    if deal.rating_percent is not None:
+        rating_str = f"⭐ <b>Valutazione:</b> {deal.rating_percent}% positive"
+        if deal.reviews_count:
+            count_str = f"{deal.reviews_count:,}".replace(",", ".")
+            rating_str += f" ({count_str} recensioni)"
+        lines.append(rating_str)
+
     # Description (sempre visualizzata)
     desc = (deal.description or f"Approfitta dell'offerta per {deal.clean_title()} disponibile su {deal.store}.").strip()
     max_desc_len = 320
@@ -87,10 +94,19 @@ def format_deal_message(deal: GameDeal) -> Tuple[str, InlineKeyboardMarkup]:
 
 # --- Settings Menus ---
 
-def format_main_settings_message(stores_count: int, cats_count: int, min_stock: float, max_sale: float) -> str:
+def format_main_settings_message(
+    stores_count: int,
+    cats_count: int,
+    min_stock: float,
+    max_sale: float,
+    ignore_min_on_free: bool = True,
+    min_rating: int = 0
+) -> str:
     """Main settings overview message."""
     min_stock_str = f"≥ {min_stock:.2f}".replace(".", ",") + " €" if min_stock > 0 else "Nessun limite (Tutti)"
     max_sale_str = f"≤ {max_sale:.2f}".replace(".", ",") + " €" if max_sale > 0 else "Solo Gratis (0,00 €)"
+    ignore_free_str = "Sì (Sempre visibili)" if ignore_min_on_free else "No (Filtro attivo anche sui gratis)"
+    rating_str = f"≥ {min_rating}% positive" if min_rating > 0 else "Disattivo (Tutti i giochi)"
 
     return (
         "⚙️ <b>Impostazioni & Filtri</b>\n\n"
@@ -98,7 +114,9 @@ def format_main_settings_message(stores_count: int, cats_count: int, min_stock: 
         f"🏬 <b>Store abilitati:</b> {stores_count} / {len(ALL_STORES)}\n"
         f"🏷️ <b>Categorie abilitate:</b> {cats_count} / {len(ALL_CATEGORIES)}\n"
         f"💰 <b>Listino minimo:</b> {min_stock_str}\n"
-        f"🏷️ <b>Prezzo max offerta:</b> {max_sale_str}\n\n"
+        f"🏷️ <b>Prezzo max offerta:</b> {max_sale_str}\n"
+        f"🎁 <b>Ignora listino se 100% Gratis:</b> {ignore_free_str}\n"
+        f"⭐ <b>Filtro qualità/anti-spam:</b> {rating_str}\n\n"
         "<i>Seleziona una sezione qui sotto per modificarla:</i>"
     )
 
@@ -110,7 +128,7 @@ def build_main_settings_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🏷️ Categorie", callback_data="nav:categories"),
         ],
         [
-            InlineKeyboardButton(text="💰 Prezzi & Soglie", callback_data="nav:prices"),
+            InlineKeyboardButton(text="💰 Prezzi & Filtro Qualità", callback_data="nav:prices"),
         ],
         [
             InlineKeyboardButton(text="✅ Chiudi", callback_data="nav:close"),
@@ -195,22 +213,41 @@ def build_categories_keyboard(enabled_categories: Set[str]) -> InlineKeyboardMar
 
 # --- Prices Submenu ---
 
-def format_prices_settings_message(min_stock: float, max_sale: float) -> str:
+def format_prices_settings_message(
+    min_stock: float,
+    max_sale: float,
+    ignore_min_on_free: bool = True,
+    min_rating: int = 0
+) -> str:
     min_stock_str = f"{min_stock:.2f}".replace(".", ",") + " €" if min_stock > 0 else "Disattivo (Qualsiasi listino)"
     max_sale_str = f"{max_sale:.2f}".replace(".", ",") + " €" if max_sale > 0 else "0,00 € (Solo 100% GRATIS)"
+    ignore_status = "✅ <b>ATTIVO</b> (I giochi gratuiti non verranno mai nascosti dal listino min)" if ignore_min_on_free else "❌ <b>DISATTIVO</b> (Anche i giochi gratis devono rispettare il listino min)"
+    rating_status = f"⭐ <b>≥ {min_rating}%</b> positive (Blocca shovelware/spam)" if min_rating > 0 else "⚪️ <b>Nessun filtro qualità</b>"
 
     return (
-        "💰 <b>Filtro Prezzi & Offerte</b>\n\n"
-        f"• <b>Listino Minimo Attuale:</b> {min_stock_str}\n"
-        "  <i>(Esclude giochi con valore originale inferiore a questa soglia)</i>\n\n"
+        "💰 <b>Filtro Prezzi & Qualità Offerte</b>\n\n"
+        f"• <b>Listino Minimo:</b> {min_stock_str}\n"
+        "  <i>(Esclude offerte con prezzo originale inferiore a questa cifra)</i>\n\n"
         f"• <b>Prezzo Massimo in Offerta:</b> {max_sale_str}\n"
-        "  <i>(Se 0€ ricevi solo giochi 100% gratis. Se > 0€ include anche offerte sotto questo prezzo)</i>\n\n"
-        "<i>Tocca un'opzione qui sotto per impostare le soglie rapide, o usa /minprice e /maxprice:</i>"
+        "  <i>(0€ = solo giochi 100% gratis. Altrimenti include sconti sotto questo importo)</i>\n\n"
+        f"• <b>Ignora Listino per Giochi 100% Gratis:</b>\n"
+        f"  {ignore_status}\n\n"
+        f"• <b>Filtro Qualità / Anti-Spam:</b>\n"
+        f"  {rating_status}\n\n"
+        "<i>Tocca i pulsanti per modificare le opzioni:</i>"
     )
 
-def build_prices_keyboard(min_stock: float, max_sale: float) -> InlineKeyboardMarkup:
+def build_prices_keyboard(
+    min_stock: float,
+    max_sale: float,
+    ignore_min_on_free: bool = True,
+    min_rating: int = 0
+) -> InlineKeyboardMarkup:
+    toggle_icon = "✅" if ignore_min_on_free else "❌"
+    toggle_label = f"{toggle_icon} Ignora listino min se Gratis"
+
     return InlineKeyboardMarkup([
-        # Row 1: Min stock price label
+        # Row 1: Min stock price
         [InlineKeyboardButton(text="🏷️ Listino Minimo:", callback_data="noop")],
         [
             InlineKeyboardButton(text=f"{'🔘' if min_stock == 0 else '⚪️'} Qualsiasi (0€)", callback_data="set_min:0"),
@@ -222,8 +259,12 @@ def build_prices_keyboard(min_stock: float, max_sale: float) -> InlineKeyboardMa
             InlineKeyboardButton(text=f"{'🔘' if min_stock == 20 else '⚪️'} ≥ 20€", callback_data="set_min:20"),
             InlineKeyboardButton(text=f"{'🔘' if min_stock == 30 else '⚪️'} ≥ 30€", callback_data="set_min:30"),
         ],
-        # Row 2: Max sale price label
-        [InlineKeyboardButton(text="🏷️ Prezzo Max Scontato:", callback_data="noop")],
+        # Row 2: Free toggle
+        [
+            InlineKeyboardButton(text=toggle_label, callback_data="toggle_ignore_min_free")
+        ],
+        # Row 3: Max sale price
+        [InlineKeyboardButton(text="🏷️ Prezzo Max in Offerta:", callback_data="noop")],
         [
             InlineKeyboardButton(text=f"{'🔘' if max_sale == 0 else '⚪️'} Solo Gratis (0€)", callback_data="set_max:0"),
             InlineKeyboardButton(text=f"{'🔘' if max_sale == 2 else '⚪️'} ≤ 2€", callback_data="set_max:2"),
@@ -232,7 +273,17 @@ def build_prices_keyboard(min_stock: float, max_sale: float) -> InlineKeyboardMa
         [
             InlineKeyboardButton(text=f"{'🔘' if max_sale == 10 else '⚪️'} ≤ 10€", callback_data="set_max:10"),
             InlineKeyboardButton(text=f"{'🔘' if max_sale == 15 else '⚪️'} ≤ 15€", callback_data="set_max:15"),
-            InlineKeyboardButton(text="🔄 Reset Prezzi", callback_data="reset_prices"),
+        ],
+        # Row 4: Quality / Rating Anti-Spam filter
+        [InlineKeyboardButton(text="⭐ Filtro Qualità / Anti-Spam:", callback_data="noop")],
+        [
+            InlineKeyboardButton(text=f"{'🔘' if min_rating == 0 else '⚪️'} Qualsiasi", callback_data="set_min_rating:0"),
+            InlineKeyboardButton(text=f"{'🔘' if min_rating == 70 else '⚪️'} ⭐ ≥ 70%", callback_data="set_min_rating:70"),
+            InlineKeyboardButton(text=f"{'🔘' if min_rating == 80 else '⚪️'} ⭐ ≥ 80%", callback_data="set_min_rating:80"),
+        ],
+        # Row 5: Reset & Return
+        [
+            InlineKeyboardButton(text="🔄 Reset Filtri Prezzo & Qualità", callback_data="reset_prices"),
         ],
         [
             InlineKeyboardButton(text="🔙 Torna alle Impostazioni", callback_data="nav:main"),

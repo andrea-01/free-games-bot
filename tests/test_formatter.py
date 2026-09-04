@@ -104,11 +104,31 @@ def test_settings_formatting():
     assert "❌" in gog_btn.text
 
     # Test main and prices menus
-    main_msg = format_main_settings_message(2, 5, 10.0, 5.0)
+    main_msg = format_main_settings_message(2, 5, 10.0, 5.0, ignore_min_on_free=True, min_rating=70)
     assert "Store abilitati:</b> 2" in main_msg
     assert "Listino minimo:</b> ≥ 10,00 €" in main_msg
+    assert "Ignora listino se 100% Gratis:</b> Sì" in main_msg
+    assert "≥ 70% positive" in main_msg
 
-    price_keyboard = build_prices_keyboard(10.0, 5.0)
+    price_keyboard = build_prices_keyboard(10.0, 5.0, ignore_min_on_free=True, min_rating=70)
     price_buttons = [btn for row in price_keyboard.inline_keyboard for btn in row]
     min10_btn = next(b for b in price_buttons if "≥ 10€" in b.text)
     assert "🔘" in min10_btn.text
+    toggle_btn = next(b for b in price_buttons if "Ignora listino min se Gratis" in b.text)
+    assert "✅" in toggle_btn.text
+    rating70_btn = next(b for b in price_buttons if "≥ 70%" in b.text)
+    assert "🔘" in rating70_btn.text
+
+def test_deal_with_ratings():
+    deal = GameDeal(
+        id="rated_game",
+        title="Epic Masterpiece",
+        store="Steam",
+        stock_price="29,99 €",
+        store_url="https://store.steampowered.com/app/123",
+        rating_percent=92,
+        reviews_count=24500,
+        genres=["Action", "RPG"],
+    )
+    caption, _ = format_deal_message(deal)
+    assert "⭐ <b>Valutazione:</b> 92% positive (24.500 recensioni)" in caption

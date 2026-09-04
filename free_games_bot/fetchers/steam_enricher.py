@@ -135,6 +135,22 @@ class SteamEnricher(BaseFetcher):
                     price_overview = details.get("price_overview") or {}
                     eur_price = price_overview.get("initial_formatted") or price_overview.get("final_formatted")
 
+                    # Rating extraction from Steam reviews
+                    rating_pct = None
+                    total_revs = None
+                    try:
+                        rev_data = await self.fetch_json(
+                            f"https://store.steampowered.com/appreviews/{app_id}?json=1&purchase_type=all&language=all"
+                        )
+                        if rev_data and "query_summary" in rev_data:
+                            qs = rev_data["query_summary"]
+                            total_revs = qs.get("total_reviews", 0)
+                            pos_revs = qs.get("total_positive", 0)
+                            if total_revs > 0:
+                                rating_pct = int(round((pos_revs / total_revs) * 100))
+                    except Exception as e:
+                        logger.debug(f"Steam reviews check failed for {app_id}: {e}")
+
                     enriched_info = {
                         "steam_appid": app_id,
                         "release_year": release_year,
@@ -143,6 +159,8 @@ class SteamEnricher(BaseFetcher):
                         "header_image": header_image,
                         "short_desc": short_desc,
                         "eur_price": eur_price,
+                        "rating_percent": rating_pct,
+                        "reviews_count": total_revs,
                     }
 
                     self._cache[cache_key] = enriched_info
@@ -187,6 +205,11 @@ class SteamEnricher(BaseFetcher):
 
         if not deal.cover_url and data.get("header_image"):
             deal.cover_url = data["header_image"]
+
+        if not deal.rating_percent and data.get("rating_percent"):
+            deal.rating_percent = data["rating_percent"]
+        if not deal.reviews_count and data.get("reviews_count"):
+            deal.reviews_count = data["reviews_count"]
 
         # Final safety defaults so fields are NEVER empty
         if not deal.genres:

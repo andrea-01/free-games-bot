@@ -13,13 +13,15 @@ A Telegram bot that monitors and alerts you about 100% free PC game giveaways ac
   - Anno di rilascio (es. `2024`)
   - Categorie e generi (es. `Avventura, Indie, GDR`)
   - Modalità (`👤 Giocatore singolo`, `👥 Multigiocatore`, `🤝 Co-op`)
+  - Recensioni e Valutazione (es. `⭐ 85% positive (12.400 recensioni)`)
   - Scadenza / Termine dell'offerta
   - Descrizione del gioco
 - 🚀 **Riscatto con 1-Click**: Pulsante interattivo Telegram che apre direttamente la pagina dello store.
-- ⚙️ **Filtri Personalizzati (/settings)**:
+- ⚙️ **Filtri Personalizzati & Anti-Spam (/settings)**:
   - **🏬 Store**: Abilita o disabilita singoli store (Epic, Steam, GOG, ecc.)
   - **🏷️ Categorie**: Filtra per generi preferiti (Azione, GDR, Strategia, ecc.)
-  - **💰 Prezzi & Soglie**: Imposta un prezzo minimo di listino o includi sconti sotto soglia via CheapShark!
+  - **💰 Prezzi & Soglie**: Imposta un listino minimo, un prezzo massimo scontato, e un toggle dedicato per mantenere sempre visibili i giochi gratis al 100%!
+  - **⭐ Filtro Qualità / Anti-Spam**: Elimina shovelware e spam al 99% di sconto richiedendo un punteggio minimo (es. ≥ 70% o ≥ 80% positive) e recensori minimi da Steam / CheapShark.
 - 🔔 **Avvisi Automatici Periodici**: Notifica automatica oraria di nuovi giochi disponibili per tutti gli iscritti.
 
 ---
@@ -29,8 +31,10 @@ A Telegram bot that monitors and alerts you about 100% free PC game giveaways ac
 | Comando | Descrizione |
 |---|---|
 | `/start` | Avvia il bot e iscrive automaticamente agli avvisi |
-| `/free` (o `/deals`) | Mostra tutti i giochi gratuiti disponibili secondo i tuoi filtri |
-| `/settings` | Menu interattivo: gestisci filtri per Store, Categorie e Prezzi |
+| `/free` | Mostra **solo i giochi 100% gratuiti** secondo i tuoi filtri |
+| `/deals` | Mostra **tutte le offerte** (giochi gratis + sconti) secondo i tuoi filtri |
+| `/nofilter-free` | Mostra **tutti i giochi gratuiti disponibili senza alcun filtro** |
+| `/settings` | Menu interattivo: Store, Categorie, Prezzi, Toggle Gratis e Filtro Qualità |
 | `/minprice [€]` | Imposta il valore minimo del gioco (es. `/minprice 10` o `/minprice 0`) |
 | `/maxprice [€]` | Imposta prezzo max per offerte a pagamento (es. `/maxprice 5` o `/maxprice 0`) |
 | `/epic` | Mostra promozioni attive e future di Epic Games Store |

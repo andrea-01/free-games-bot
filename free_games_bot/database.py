@@ -90,6 +90,9 @@ class Database:
                     enabled_categories TEXT,
                     min_stock_price REAL DEFAULT 0.0,
                     max_sale_price REAL DEFAULT 0.0,
+                    ignore_min_on_free INTEGER DEFAULT 1,
+                    min_rating INTEGER DEFAULT 0,
+                    min_reviews INTEGER DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
@@ -111,6 +114,9 @@ class Database:
                 ("enabled_categories", "TEXT"),
                 ("min_stock_price", "REAL DEFAULT 0.0"),
                 ("max_sale_price", "REAL DEFAULT 0.0"),
+                ("ignore_min_on_free", "INTEGER DEFAULT 1"),
+                ("min_rating", "INTEGER DEFAULT 0"),
+                ("min_reviews", "INTEGER DEFAULT 0"),
             ]
             for col_name, col_type in columns_to_add:
                 try:
@@ -275,30 +281,115 @@ class Database:
             await db.commit()
         return val
 
-    async def reset_user_prices(self, chat_id: int):
-        """Reset both price filters to 0 (all stock values, free only)."""
+    async def get_user_ignore_min_on_free(self, chat_id: int) -> bool:
+        """Check if user wants to bypass min_stock_price for 100% free games. Defaults to True."""
         async with aiosqlite.connect(self.db_path) as db:
-            await db.execute("UPDATE subscribers SET min_stock_price = 0.0, max_sale_price = 0.0 WHERE chat_id = ?;", (chat_id,))
+            async with db.execute(
+                "SELECT ignore_min_on_free FROM subscribers WHERE chat_id = ?;", (chat_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row and row[0] is not None:
+                    return bool(row[0] == 1)
+        return True
+
+    async def toggle_user_ignore_min_on_free(self, chat_id: int) -> bool:
+        """Toggle ignore_min_on_free setting."""
+        current = await self.get_user_ignore_min_on_free(chat_id)
+        new_val = not current
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "UPDATE subscribers SET ignore_min_on_free = ? WHERE chat_id = ?;", (1 if new_val else 0, chat_id)
+            )
+            await db.commit()
+        return new_val
+
+    # --- Quality & Rating Filters ---
+
+    async def get_user_rating_filter(self, chat_id: int) -> Tuple[int, int]:
+        """Get (min_rating_percent, min_reviews) for a user. Defaults to (0, 0)."""
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                "SELECT min_rating, min_reviews FROM subscribers WHERE chat_id = ?;", (chat_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    min_rating = int(row[0] or 0)
+                    min_reviews = int(row[1] or 0)
+                    return min_rating, min_reviews
+        return 0, 0
+
+    async def set_user_rating_filter(self, chat_id: int, min_rating: int, min_reviews: int = 0):
+        """Set minimum review score percentage and minimum review count."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "UPDATE subscribers SET min_rating = ?, min_reviews = ? WHERE chat_id = ?;",
+                (max(0, min_rating), max(0, min_reviews), chat_id),
+            )
+            await db.commit()
+
+    async def reset_user_prices(self, chat_id: int):
+        """Reset price and rating filters to default."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("""
+                UPDATE subscribers
+                SET min_stock_price = 0.0, max_sale_price = 0.0, ignore_min_on_free = 1, min_rating = 0, min_reviews = 0
+                WHERE chat_id = ?;
+            """, (chat_id,))
             await db.commit()
 
     async def is_deal_price_allowed(self, chat_id: int, stock_price_val: float, sale_price_val: float) -> bool:
-        """Check if deal satisfies both min stock price and max sale price filters."""
+        """Check if deal satisfies min stock price, max sale price, and free bypass rules."""
         min_stock, max_sale = await self.get_user_prices(chat_id)
+        ignore_on_free = await self.get_user_ignore_min_on_free(chat_id)
 
-        # 1. Min stock price filter: original retail price must be >= min_stock
-        if min_stock > 0 and stock_price_val < min_stock:
-            return False
+        is_free = sale_price_val <= 0.01
 
-        # 2. Max sale price filter: sale price must be <= max_sale
+        # 1. Min stock price filter
+        if min_stock > 0:
+            if is_free and ignore_on_free:
+                # User chose to keep 100% free games regardless of retail price
+                pass
+            elif stock_price_val < min_stock:
+                return False
+
+        # 2. Max sale price filter
         if max_sale > 0:
             if sale_price_val > max_sale:
                 return False
         else:
             # If max_sale == 0.0, deal must be completely free (sale_price <= 0.01)
-            if sale_price_val > 0.01:
+            if not is_free:
                 return False
 
         return True
+
+    async def is_deal_quality_allowed(
+        self,
+        chat_id: int,
+        rating_percent: Optional[int],
+        reviews_count: Optional[int],
+        store: str = ""
+    ) -> bool:
+        """Check if deal satisfies user's minimum quality/rating criteria."""
+        min_rating, min_reviews = await self.get_user_rating_filter(chat_id)
+        if min_rating <= 0 and min_reviews <= 0:
+            return True
+
+        # Curated giveaway stores (Epic Games, Prime Gaming, GOG) are allowed through if unrated
+        curated_stores = {"Epic Games", "Prime Gaming", "GOG"}
+        if rating_percent is None and store in curated_stores:
+            return True
+
+        # If rating is known, check against thresholds
+        if rating_percent is not None:
+            if rating_percent < min_rating:
+                return False
+            if min_reviews > 0 and (reviews_count or 0) < min_reviews:
+                return False
+            return True
+
+        # If unrated on open stores (Steam, Itch, etc.) and quality filter is active, exclude it
+        return False
 
     # --- Sent Deals Tracking ---
 

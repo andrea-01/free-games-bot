@@ -74,7 +74,9 @@ class FreeGamesBot:
         # Comandi utente
         app.add_handler(CommandHandler("start", self.start_command))
         app.add_handler(CommandHandler("help", self.help_command))
-        app.add_handler(CommandHandler(["free", "deals", "giochi"], self.free_command))
+        app.add_handler(CommandHandler(["free", "giochi"], self.free_command))
+        app.add_handler(CommandHandler("deals", self.deals_command))
+        app.add_handler(CommandHandler(["nofilter_free", "nofilterfree", "nofilter-free", "allfree"], self.nofilter_free_command))
         app.add_handler(CommandHandler("epic", self.epic_command))
         app.add_handler(CommandHandler("steam", self.steam_command))
         app.add_handler(CommandHandler("check", self.check_command))
@@ -134,15 +136,17 @@ class FreeGamesBot:
             "✨ <b>Caratteristiche:</b>\n"
             "• Locandine ad alta risoluzione (da SteamGridDB e store)\n"
             "• Prezzi e sconti ufficiali in <b>Euro (€)</b>\n"
-            "• Dati completi (Anno di uscita, generi, modalità singolo/multiplayer)\n"
+            "• Dati completi (Anno di uscita, generi, modalità singolo/multiplayer, recensioni)\n"
             "• Link diretti alle pagine degli store in lingua italiana\n"
-            "• Filtri avanzati per <b>Store</b>, <b>Categorie</b> e <b>Prezzi</b> (/settings)\n"
+            "• Filtri avanzati per <b>Store</b>, <b>Categorie</b>, <b>Prezzi</b> e <b>Anti-Spam/Qualità</b> (/settings)\n"
             "• Avvisi automatici sui nuovi drop di giochi gratuiti\n\n"
             "📌 <b>Comandi principali:</b>\n"
-            "/free - Mostra tutti i giochi gratis attivi\n"
-            "/settings - Configura store, generi e soglie di prezzo\n"
-            "/epic - Mostra giochi attivi e anticipazioni di Epic Games\n"
-            "/steam - Mostra promozioni e giveaway Steam\n"
+            "/free - Mostra solo i giochi 100% gratis secondo i tuoi filtri\n"
+            "/deals - Mostra tutte le offerte (gratis e sconti) secondo i filtri\n"
+            "/nofilter-free - Tutti i giochi gratuiti disponibili senza alcun filtro\n"
+            "/settings - Configura store, generi, soglie di prezzo e qualità\n"
+            "/epic - Mostra promozioni di Epic Games\n"
+            "/steam - Mostra promozioni Steam\n"
             "/check - Controlla nuovi arrivi non ancora ricevuti\n"
             "/help - Mostra la guida completa dei comandi"
         )
@@ -155,10 +159,12 @@ class FreeGamesBot:
 
         help_text = (
             "🛠 <b>Guida ai comandi di Free Games Bot:</b>\n\n"
-            "/free (o /deals) - Mostra tutti i giochi gratuiti disponibili secondo i tuoi filtri\n"
-            "/settings - Apri il pannello filtri (Store, Categorie, Prezzi)\n"
-            "/minprice [euro] - Imposta il valore minimo del gioco (es. <code>/minprice 10</code> o <code>/minprice 0</code> per disattivare)\n"
-            "/maxprice [euro] - Imposta il prezzo max per offerte a pagamento (es. <code>/maxprice 5</code> o <code>/maxprice 0</code> solo gratis)\n"
+            "/free - Mostra solo i titoli 100% gratuiti secondo i tuoi filtri\n"
+            "/deals - Mostra l'elenco di tutte le offerte (gratis e sconti) filtrate\n"
+            "/nofilter-free - Elenco di tutti i giochi gratuiti disponibili SENZA alcun filtro\n"
+            "/settings - Apri il pannello filtri (Store, Categorie, Prezzi & Qualità)\n"
+            "/minprice [euro] - Imposta il valore minimo del gioco (es. <code>/minprice 10</code> o <code>/minprice 0</code>)\n"
+            "/maxprice [euro] - Imposta il prezzo max per offerte a pagamento (es. <code>/maxprice 5</code> o <code>/maxprice 0</code>)\n"
             "/epic - Visualizza le offerte attive e future di Epic Games Store\n"
             "/steam - Visualizza i giochi gratis e promozioni su Steam\n"
             "/check - Cerca subito nuovi giochi non ancora ricevuti\n"
@@ -178,8 +184,10 @@ class FreeGamesBot:
         stores = await self.db.get_user_stores(chat_id)
         categories = await self.db.get_user_categories(chat_id)
         min_stock, max_sale = await self.db.get_user_prices(chat_id)
+        ignore_free = await self.db.get_user_ignore_min_on_free(chat_id)
+        min_rating, _ = await self.db.get_user_rating_filter(chat_id)
 
-        text = format_main_settings_message(len(stores), len(categories), min_stock, max_sale)
+        text = format_main_settings_message(len(stores), len(categories), min_stock, max_sale, ignore_free, min_rating)
         keyboard = build_main_settings_keyboard()
         await update.message.reply_text(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
@@ -256,8 +264,10 @@ class FreeGamesBot:
             stores = await self.db.get_user_stores(chat_id)
             categories = await self.db.get_user_categories(chat_id)
             min_stock, max_sale = await self.db.get_user_prices(chat_id)
+            ignore_free = await self.db.get_user_ignore_min_on_free(chat_id)
+            min_rating, _ = await self.db.get_user_rating_filter(chat_id)
             await query.edit_message_text(
-                text=format_main_settings_message(len(stores), len(categories), min_stock, max_sale),
+                text=format_main_settings_message(len(stores), len(categories), min_stock, max_sale, ignore_free, min_rating),
                 reply_markup=build_main_settings_keyboard(),
                 parse_mode=ParseMode.HTML,
             )
@@ -283,9 +293,11 @@ class FreeGamesBot:
 
         if data == "nav:prices":
             min_stock, max_sale = await self.db.get_user_prices(chat_id)
+            ignore_free = await self.db.get_user_ignore_min_on_free(chat_id)
+            min_rating, _ = await self.db.get_user_rating_filter(chat_id)
             await query.edit_message_text(
-                text=format_prices_settings_message(min_stock, max_sale),
-                reply_markup=build_prices_keyboard(min_stock, max_sale),
+                text=format_prices_settings_message(min_stock, max_sale, ignore_free, min_rating),
+                reply_markup=build_prices_keyboard(min_stock, max_sale, ignore_free, min_rating),
                 parse_mode=ParseMode.HTML,
             )
             return
@@ -352,14 +364,42 @@ class FreeGamesBot:
             )
             return
 
-        # 4. Impostazioni Prezzi
+        # 4. Impostazioni Prezzi & Qualità
+        if data == "toggle_ignore_min_free":
+            await self.db.toggle_user_ignore_min_on_free(chat_id)
+            min_stock, max_sale = await self.db.get_user_prices(chat_id)
+            ignore_free = await self.db.get_user_ignore_min_on_free(chat_id)
+            min_rating, _ = await self.db.get_user_rating_filter(chat_id)
+            await query.edit_message_text(
+                text=format_prices_settings_message(min_stock, max_sale, ignore_free, min_rating),
+                reply_markup=build_prices_keyboard(min_stock, max_sale, ignore_free, min_rating),
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        if data.startswith("set_min_rating:"):
+            val = int(data.split(":", 1)[1])
+            min_reviews = 10 if val > 0 else 0
+            await self.db.set_user_rating_filter(chat_id, val, min_reviews)
+            min_stock, max_sale = await self.db.get_user_prices(chat_id)
+            ignore_free = await self.db.get_user_ignore_min_on_free(chat_id)
+            min_rating, _ = await self.db.get_user_rating_filter(chat_id)
+            await query.edit_message_text(
+                text=format_prices_settings_message(min_stock, max_sale, ignore_free, min_rating),
+                reply_markup=build_prices_keyboard(min_stock, max_sale, ignore_free, min_rating),
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
         if data.startswith("set_min:"):
             val = float(data.split(":", 1)[1])
             await self.db.set_user_min_stock_price(chat_id, val)
             min_stock, max_sale = await self.db.get_user_prices(chat_id)
+            ignore_free = await self.db.get_user_ignore_min_on_free(chat_id)
+            min_rating, _ = await self.db.get_user_rating_filter(chat_id)
             await query.edit_message_text(
-                text=format_prices_settings_message(min_stock, max_sale),
-                reply_markup=build_prices_keyboard(min_stock, max_sale),
+                text=format_prices_settings_message(min_stock, max_sale, ignore_free, min_rating),
+                reply_markup=build_prices_keyboard(min_stock, max_sale, ignore_free, min_rating),
                 parse_mode=ParseMode.HTML,
             )
             return
@@ -368,9 +408,11 @@ class FreeGamesBot:
             val = float(data.split(":", 1)[1])
             await self.db.set_user_max_sale_price(chat_id, val)
             min_stock, max_sale = await self.db.get_user_prices(chat_id)
+            ignore_free = await self.db.get_user_ignore_min_on_free(chat_id)
+            min_rating, _ = await self.db.get_user_rating_filter(chat_id)
             await query.edit_message_text(
-                text=format_prices_settings_message(min_stock, max_sale),
-                reply_markup=build_prices_keyboard(min_stock, max_sale),
+                text=format_prices_settings_message(min_stock, max_sale, ignore_free, min_rating),
+                reply_markup=build_prices_keyboard(min_stock, max_sale, ignore_free, min_rating),
                 parse_mode=ParseMode.HTML,
             )
             return
@@ -378,8 +420,8 @@ class FreeGamesBot:
         if data == "reset_prices":
             await self.db.reset_user_prices(chat_id)
             await query.edit_message_text(
-                text=format_prices_settings_message(0.0, 0.0),
-                reply_markup=build_prices_keyboard(0.0, 0.0),
+                text=format_prices_settings_message(0.0, 0.0, True, 0),
+                reply_markup=build_prices_keyboard(0.0, 0.0, True, 0),
                 parse_mode=ParseMode.HTML,
             )
             return
@@ -387,12 +429,53 @@ class FreeGamesBot:
     # --- Comandi Ricerca & Offerte con Filtri ---
 
     async def free_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Gestisce /free o /deals: applica filtri di store, categorie e prezzi dell'utente."""
+        """Gestisce /free: mostra solo i titoli attualmente GRATUITI (100% sconto) secondo i filtri dell'utente."""
         chat_id = update.effective_chat.id
         user = update.effective_user
         logger.info(f"[COMANDO /free] Utente: @{user.username if user else 'N/A'} ({chat_id})")
 
-        status_msg = await update.message.reply_text("🔍 <i>Ricerca offerte e giochi gratis in corso...</i>", parse_mode=ParseMode.HTML)
+        status_msg = await update.message.reply_text("🔍 <i>Ricerca giochi gratuiti attivi...</i>", parse_mode=ParseMode.HTML)
+
+        min_stock, _ = await self.db.get_user_prices(chat_id)
+        all_deals = await self.deal_manager.fetch_all_deals(
+            max_sale_price=0.0,
+            min_stock_price=min_stock,
+        )
+
+        active_free = [d for d in all_deals if not d.is_upcoming and d.sale_price_value <= 0.01]
+
+        filtered_deals = []
+        for d in active_free:
+            if not await self.db.is_deal_allowed_for_user(chat_id, d.store):
+                continue
+            if not await self.db.is_deal_category_allowed(chat_id, d.genres):
+                continue
+            if not await self.db.is_deal_price_allowed(chat_id, d.stock_price_value, d.sale_price_value):
+                continue
+            if not await self.db.is_deal_quality_allowed(chat_id, d.rating_percent, d.reviews_count, d.store):
+                continue
+            filtered_deals.append(d)
+
+        if not filtered_deals:
+            await status_msg.edit_text(
+                "ℹ️ Nessun gioco 100% gratuito trovato che corrisponda ai tuoi filtri attuali!\n"
+                "Usa /settings per modificare store, generi o soglie, oppure usa /nofilter-free per vedere tutti i giochi gratis disponibili senza alcun filtro."
+            )
+            return
+
+        await status_msg.edit_text(f"🎁 Trovati <b>{len(filtered_deals)}</b> giochi 100% gratuiti per te! Invio in corso...", parse_mode=ParseMode.HTML)
+
+        for deal in filtered_deals:
+            await send_deal_message(context.bot, chat_id, deal)
+            await self.db.mark_deal_sent(deal.id, chat_id, deal.title, deal.store)
+
+    async def deals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Gestisce /deals: fornisce l'elenco di tutte le offerte (gratis e sconti) corrispondenti ai filtri."""
+        chat_id = update.effective_chat.id
+        user = update.effective_user
+        logger.info(f"[COMANDO /deals] Utente: @{user.username if user else 'N/A'} ({chat_id})")
+
+        status_msg = await update.message.reply_text("🔍 <i>Ricerca offerte e promozioni secondo i tuoi filtri...</i>", parse_mode=ParseMode.HTML)
 
         min_stock, max_sale = await self.db.get_user_prices(chat_id)
         all_deals = await self.deal_manager.fetch_all_deals(
@@ -402,7 +485,6 @@ class FreeGamesBot:
 
         active_deals = [d for d in all_deals if not d.is_upcoming]
 
-        # Filtra per store, categoria e prezzo dell'utente
         filtered_deals = []
         for d in active_deals:
             if not await self.db.is_deal_allowed_for_user(chat_id, d.store):
@@ -411,18 +493,46 @@ class FreeGamesBot:
                 continue
             if not await self.db.is_deal_price_allowed(chat_id, d.stock_price_value, d.sale_price_value):
                 continue
+            if not await self.db.is_deal_quality_allowed(chat_id, d.rating_percent, d.reviews_count, d.store):
+                continue
             filtered_deals.append(d)
 
         if not filtered_deals:
             await status_msg.edit_text(
-                "ℹ️ Nessun gioco trovato che corrisponda ai tuoi filtri attuali!\n"
-                "Usa /settings per abilitare altri store, categorie o modificare le soglie di prezzo."
+                "ℹ️ Nessuna offerta trovata che corrisponda ai tuoi filtri attuali!\n"
+                "Usa /settings per modificare store, generi o aumentare il prezzo massimo dell'offerta."
             )
             return
 
-        await status_msg.edit_text(f"🎁 Trovate <b>{len(filtered_deals)}</b> offerte corrispondenti! Invio in corso...", parse_mode=ParseMode.HTML)
+        await status_msg.edit_text(f"🔥 Trovate <b>{len(filtered_deals)}</b> offerte per te! Invio in corso...", parse_mode=ParseMode.HTML)
 
         for deal in filtered_deals:
+            await send_deal_message(context.bot, chat_id, deal)
+            await self.db.mark_deal_sent(deal.id, chat_id, deal.title, deal.store)
+
+    async def nofilter_free_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Gestisce /nofilter-free: elenco di tutti i giochi gratuiti disponibili senza alcun filtro."""
+        chat_id = update.effective_chat.id
+        user = update.effective_user
+        logger.info(f"[COMANDO /nofilter-free] Utente: @{user.username if user else 'N/A'} ({chat_id})")
+
+        status_msg = await update.message.reply_text("🔍 <i>Recupero di TUTTI i giochi gratuiti disponibili senza filtri...</i>", parse_mode=ParseMode.HTML)
+
+        all_deals = await self.deal_manager.fetch_all_deals(
+            max_sale_price=0.0,
+            min_stock_price=0.0,
+        )
+
+        # Solo giochi attualmente gratuiti (senza filtri di store, categorie, listino o qualità)
+        active_free = [d for d in all_deals if not d.is_upcoming and d.sale_price_value <= 0.01]
+
+        if not active_free:
+            await status_msg.edit_text("ℹ️ Nessun gioco gratuito disponibile al 100% in questo momento su nessuno store.")
+            return
+
+        await status_msg.edit_text(f"🎁 Trovati <b>{len(active_free)}</b> giochi gratuiti totali senza filtri! Invio in corso...", parse_mode=ParseMode.HTML)
+
+        for deal in active_free:
             await send_deal_message(context.bot, chat_id, deal)
             await self.db.mark_deal_sent(deal.id, chat_id, deal.title, deal.store)
 
@@ -481,6 +591,8 @@ class FreeGamesBot:
             if not await self.db.is_deal_category_allowed(chat_id, d.genres):
                 continue
             if not await self.db.is_deal_price_allowed(chat_id, d.stock_price_value, d.sale_price_value):
+                continue
+            if not await self.db.is_deal_quality_allowed(chat_id, d.rating_percent, d.reviews_count, d.store):
                 continue
             filtered_deals.append(d)
 
@@ -545,6 +657,8 @@ class FreeGamesBot:
                         if not await self.db.is_deal_category_allowed(chat_id, deal.genres):
                             continue
                         if not await self.db.is_deal_price_allowed(chat_id, deal.stock_price_value, deal.sale_price_value):
+                            continue
+                        if not await self.db.is_deal_quality_allowed(chat_id, deal.rating_percent, deal.reviews_count, deal.store):
                             continue
 
                         logger.info(f"[NOTIFICA DEAL] Invio '{deal.title}' ({deal.store}, {deal.stock_price}) a chat {chat_id}")

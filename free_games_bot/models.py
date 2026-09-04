@@ -42,6 +42,9 @@ class GameDeal:
     is_upcoming: bool = False  # True for future Epic games
     steam_appid: Optional[int] = None
     sale_price_value: float = 0.0  # 0.0 if 100% free
+    rating_percent: Optional[int] = None  # e.g. 85 (% positive reviews)
+    reviews_count: Optional[int] = None  # e.g. 1500 (total reviews)
+    metacritic_score: Optional[int] = None  # e.g. 82
 
     @property
     def stock_price_value(self) -> float:

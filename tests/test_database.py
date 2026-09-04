@@ -106,16 +106,56 @@ async def test_database_price_preferences(tmp_path):
 
     # Set min_stock to 10.0
     await db.set_user_min_stock_price(12345, 10.0)
-    # Deal with stock: 5.0 disallowed
+    # Paid deal with stock: 5.0 is disallowed
+    assert await db.is_deal_price_allowed(12345, stock_price_val=5.0, sale_price_val=2.0) is False
+    # Paid deal with stock: 15.0 is allowed
+    assert await db.is_deal_price_allowed(12345, stock_price_val=15.0, sale_price_val=2.0) is True
+
+    # By default, ignore_min_on_free is True, so 100% free deal with stock: 5.0 is allowed
+    assert await db.get_user_ignore_min_on_free(12345) is True
+    assert await db.is_deal_price_allowed(12345, stock_price_val=5.0, sale_price_val=0.0) is True
+
+    # If user toggles ignore_min_on_free to False, 100% free deal under min_stock is blocked
+    new_toggle = await db.toggle_user_ignore_min_on_free(12345)
+    assert new_toggle is False
     assert await db.is_deal_price_allowed(12345, stock_price_val=5.0, sale_price_val=0.0) is False
-    # Deal with stock: 15.0 allowed
-    assert await db.is_deal_price_allowed(12345, stock_price_val=15.0, sale_price_val=0.0) is True
 
     # Reset
     await db.reset_user_prices(12345)
     min_stock, max_sale = await db.get_user_prices(12345)
     assert min_stock == 0.0
     assert max_sale == 0.0
+    assert await db.get_user_ignore_min_on_free(12345) is True
+
+@pytest.mark.asyncio
+async def test_database_quality_preferences(tmp_path):
+    db_file = str(tmp_path / "test_quality.db")
+    db = Database(db_path=db_file)
+    await db.init_db()
+
+    await db.add_subscriber(chat_id=12345)
+
+    # By default, no quality filter
+    min_rating, min_reviews = await db.get_user_rating_filter(12345)
+    assert min_rating == 0
+    assert min_reviews == 0
+    assert await db.is_deal_quality_allowed(12345, rating_percent=40, reviews_count=5, store="Steam") is True
+    assert await db.is_deal_quality_allowed(12345, rating_percent=None, reviews_count=None, store="Steam") is True
+
+    # Set filter: min 70% positive, min 10 reviews
+    await db.set_user_rating_filter(12345, min_rating=70, min_reviews=10)
+
+    # Shovelware with 45% positive -> blocked
+    assert await db.is_deal_quality_allowed(12345, rating_percent=45, reviews_count=100, store="Steam") is False
+    # Shovelware with 90% positive but only 2 fake reviews -> blocked
+    assert await db.is_deal_quality_allowed(12345, rating_percent=90, reviews_count=2, store="Steam") is False
+    # Good game with 85% positive and 500 reviews -> allowed
+    assert await db.is_deal_quality_allowed(12345, rating_percent=85, reviews_count=500, store="Steam") is True
+
+    # Curated store (Epic Games) unrated -> allowed
+    assert await db.is_deal_quality_allowed(12345, rating_percent=None, reviews_count=None, store="Epic Games") is True
+    # Unrated on Steam with active quality filter -> blocked
+    assert await db.is_deal_quality_allowed(12345, rating_percent=None, reviews_count=None, store="Steam") is False
 
 def test_normalize_helpers():
     assert normalize_deal_store("Epic Games") == "Epic Games"
