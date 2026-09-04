@@ -1,104 +1,105 @@
-# 🎮 Free Games Telegram Bot
+# 🎮 Game Deals Telegram Bot
 
-A Telegram bot that monitors and alerts you about 100% free PC game giveaways across major stores including **Epic Games Store, Steam, GOG, Ubisoft Connect, EA / Origin, Itch.io, and IndieGala**.
-
----
-
-## ✨ Caratteristiche / Features
-
-- 🖼 **Locandine ad alta risoluzione**: Da SteamGridDB (poster verticali 600x900) o store ufficiali.
-- 💰 **Prezzi in Euro (€)**: Visualizzazione del prezzo di listino e dell'eventuale sconto (es. `<s>19,99 €</s> ➔ GRATIS (100% di sconto)`).
-- 🇮🇹 **Pagine Store Italiane**: Link diretti alle pagine in lingua italiana degli store ufficiali.
-- 🏷 **Metadati Completi**:
-  - Anno di rilascio (es. `2024`)
-  - Categorie e generi (es. `Avventura, Indie, GDR`)
-  - Modalità (`👤 Giocatore singolo`, `👥 Multigiocatore`, `🤝 Co-op`)
-  - Recensioni e Valutazione (es. `⭐ 85% positive (12.400 recensioni)`)
-  - Scadenza / Termine dell'offerta
-  - Descrizione del gioco
-- 🚀 **Riscatto con 1-Click**: Pulsante interattivo Telegram che apre direttamente la pagina dello store.
-- ⚙️ **Filtri Personalizzati & Anti-Spam (/settings)**:
-  - **🏬 Store**: Abilita o disabilita singoli store (Epic, Steam, GOG, ecc.)
-  - **🏷️ Categorie**: Filtra per generi preferiti (Azione, GDR, Strategia, ecc.)
-  - **💰 Prezzi & Soglie**: Imposta un listino minimo, un prezzo massimo scontato, e un toggle dedicato per mantenere sempre visibili i giochi gratis al 100%!
-  - **⭐ Filtro Qualità / Anti-Spam**: Elimina shovelware e spam al 99% di sconto richiedendo un punteggio minimo (es. ≥ 70% o ≥ 80% positive) e recensori minimi da Steam / CheapShark.
-- 🔔 **Avvisi Automatici Periodici**: Notifica automatica oraria di nuovi giochi disponibili per tutti gli iscritti.
+Un bot Telegram avanzato per monitorare e ricevere notifiche istantanee sui giochi PC 100% gratuiti e sulle migliori offerte digitali da **Epic Games Store, Steam, GOG, Ubisoft Connect, EA / Origin, Itch.io e IndieGala**.
 
 ---
 
-## 🛠 Comandi / Commands
+## ✨ Funzionalità
+
+- 🖼 **Locandine ad Alta Risoluzione**: Poster verticali (600x900) recuperati da SteamGridDB o direttamente dagli store ufficiali.
+- 💰 **Prezzi e Sconti Ufficiali in Euro (€)**: Visualizzazione chiara del prezzo di listino e dell'offerta corrente (es. `<s>19,99 €</s> ➔ GRATIS (100% di sconto)` o `<s>39,99 €</s> ➔ 4,99 € (-88%)`).
+- 🇮🇹 **Link Diretti agli Store in Italiano**: Ogni scheda contiene il pulsante diretto per aprire la pagina del negozio in lingua italiana.
+- 🏷 **Metadati di Gioco Completi**:
+  - Anno di rilascio
+  - Generi e categorie (Azione, Avventura, GDR, Strategia, Horror, ecc.)
+  - Modalità supportate (`👤 Giocatore singolo`, `👥 Multigiocatore`, `🤝 Co-op`)
+  - Recensioni e Valutazioni reali (es. `⭐ 85% positive (12.400 recensioni)`)
+  - Data di scadenza dell'offerta
+  - Descrizione e sinossi del gioco
+- 🚀 **Riscatto con 1-Click**: Pulsante interattivo sotto ogni scheda per riscattare subito il titolo.
+- ⚙️ **Pannello Filtri Interattivo (/settings)**:
+  - **🏬 Store**: Abilita o disabilita singoli negozi.
+  - **🏷️ Categorie**: Filtra in base ai generi di tuo interesse.
+  - **💰 Prezzi & Soglie**: Imposta una soglia di listino minimo e un prezzo massimo per le offerte scontate.
+  - **🎁 Toggle Listino per Giochi Gratis**: Opzione dedicata per non escludere mai i giochi al 100% gratuiti anche quando imposti un listino minimo sulle offerte a pagamento.
+  - **⭐ Filtro Qualità / Anti-Spam**: Elimina shovelware e spam al 99% di sconto richiedendo un punteggio minimo di recensioni positive (≥ 70% o ≥ 80%) e recensori verificati da Steam e CheapShark.
+- 🔔 **Notifiche Automatiche Periodiche**: Controllo orario in background con avvisi automatici inviati a tutti gli iscritti.
+
+---
+
+## 🛠 Comandi Disponibili
 
 | Comando | Descrizione |
 |---|---|
-| `/start` | Avvia il bot e iscrive automaticamente agli avvisi |
-| `/free` | Mostra **solo i giochi 100% gratuiti** secondo i tuoi filtri |
+| `/start` | Avvia il bot, mostra il messaggio di benvenuto e iscrive alle notifiche |
+| `/free` | Mostra **solo i titoli 100% gratuiti** secondo i tuoi filtri |
 | `/deals` | Mostra **tutte le offerte** (giochi gratis + sconti) secondo i tuoi filtri |
-| `/nofilter-free` | Mostra **tutti i giochi gratuiti disponibili senza alcun filtro** |
-| `/settings` | Menu interattivo: Store, Categorie, Prezzi, Toggle Gratis e Filtro Qualità |
-| `/minprice [€]` | Imposta il valore minimo del gioco (es. `/minprice 10` o `/minprice 0`) |
-| `/maxprice [€]` | Imposta prezzo max per offerte a pagamento (es. `/maxprice 5` o `/maxprice 0`) |
-| `/epic` | Mostra promozioni attive e future di Epic Games Store |
-| `/steam` | Mostra promozioni e giveaway Steam |
-| `/check` | Controlla nuovi arrivi non ancora ricevuti |
+| `/nofilter_free` (o `/nofilter-free`) | Mostra **tutti i giochi gratuiti disponibili senza alcun filtro** |
+| `/settings` | Pannello interattivo per gestire Store, Categorie, Prezzi e Filtro Qualità |
+| `/minprice [€]` | Imposta rapidamente il listino minimo (es. `/minprice 10` o `/minprice 0`) |
+| `/maxprice [€]` | Imposta il prezzo max per offerte a pagamento (es. `/maxprice 5` o `/maxprice 0`) |
+| `/epic` | Mostra promozioni attive e anticipazioni future di Epic Games Store |
+| `/steam` | Mostra promozioni e giveaway attivi su Steam |
+| `/check` | Cerca subito nuovi giochi non ancora ricevuti |
 | `/subscribe` | Attiva le notifiche automatiche periodiche |
 | `/unsubscribe` | Disattiva le notifiche automatiche |
-| `/help` | Guida completa ai comandi |
+| `/help` | Mostra la guida completa dei comandi |
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Guida Rapida all'Avvio
 
-### 1. Requirements
+### 1. Requisiti
 - Python 3.10+
-- Telegram Bot Token from [@BotFather](https://t.me/BotFather)
-- *(Optional)* SteamGridDB API key from [SteamGridDB](https://www.steamgriddb.com/profile/preferences/api)
+- Token Bot Telegram ottenuto da [@BotFather](https://t.me/BotFather)
+- *(Opzionale)* Chiave API di [SteamGridDB](https://www.steamgriddb.com/profile/preferences/api) per poster ad alta risoluzione
 
-### 2. Configure Environment
+### 2. Configurazione dell'Ambiente
 
-Create or edit your `.env` file:
+Crea o modifica il file `.env` nella radice del progetto:
 ```env
-TELEGRAM_BOT_TOKEN=your_bot_token_from_botfather
-STEAMGRIDDB_API_KEY=your_steamgriddb_key_here
+TELEGRAM_BOT_TOKEN=il_tuo_token_botfather
+STEAMGRIDDB_API_KEY=la_tua_chiave_steamgriddb
 CHECK_INTERVAL_MINUTES=60
 DATABASE_PATH=data/free_games.db
 LOG_LEVEL=INFO
 ```
 
-### 3. Run Locally with Python
+### 3. Esecuzione Locale con Python
 
 ```bash
-# Create virtual environment and install dependencies
+# Crea l'ambiente virtuale e installa le dipendenze
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# Test deal fetching & formatting in the terminal without starting the bot:
+# Testa il recupero e la formattazione delle offerte nel terminale:
 python -m free_games_bot.main --test-fetch
 
-# Launch the live Telegram bot:
+# Avvia il bot Telegram:
 python -m free_games_bot.main
 ```
 
-### 4. Run with Docker Compose
+### 4. Esecuzione con Docker Compose
 
 ```bash
 docker compose up -d
 ```
 
-To view logs:
+Per visualizzare i log:
 ```bash
 docker compose logs -f
 ```
 
 ---
 
-## 🏠 Deploying on CasaOS Homeserver (Web UI)
+## 🏠 Installazione su Server CasaOS (Web UI)
 
 CasaOS supporta l'installazione diretta di applicazioni personalizzate tramite Docker Compose dall'interfaccia grafica:
 
 ### Passaggi di Installazione tramite Web UI:
 1. Apri la dashboard del tuo server **CasaOS**.
-2. In alto a destra nella griglia delle app, clicca sul pulsante **`+`** ➔ **"Install a customized app"** (Installa un'app personalizzata).
+2. In alto a destra nella griglia delle applicazioni, clicca sul pulsante **`+`** ➔ **"Install a customized app"** (Installa un'app personalizzata).
 3. Nell'angolo in alto a destra della finestra modale, clicca sull'icona di importazione **"Import"** (icona con freccia/foglio).
 4. Incolla la seguente configurazione Compose:
 
@@ -154,9 +155,9 @@ x-casaos:
 
 ---
 
-## 🧪 Testing
+## 🧪 Test Automatizzati
 
-Esegui la suite di test automatizzati:
+Per eseguire l'intera suite di test:
 ```bash
 pytest -v
 ```
