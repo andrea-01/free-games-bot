@@ -92,55 +92,71 @@ docker compose logs -f
 
 ---
 
-## 🏠 Deploying on CasaOS Homeserver
+## 🏠 Deploying on CasaOS Homeserver (Web UI)
 
-CasaOS is powered by Docker under the hood. You can deploy this bot in under 2 minutes:
+CasaOS supporta l'installazione diretta di applicazioni personalizzate tramite Docker Compose dall'interfaccia grafica:
 
-### Option A: Via CasaOS Web UI ("Custom Install")
-1. Open your CasaOS dashboard.
-2. In the top right corner of the apps grid, click **`+`** (Install a customized app) ➔ **"Install a customized app"**.
-3. In the top-right corner of the popup modal, click the **import icon** (`import` / `Compose`).
-4. Paste the following CasaOS-ready Compose configuration:
-   ```yaml
-   name: free-games-bot
-   services:
-     bot:
-       image: ghcr.io/andrea-01/free-games-bot:latest
-       container_name: free-games-bot
-       restart: unless-stopped
-       environment:
-         - TELEGRAM_BOT_TOKEN=your_token_here
-         - STEAMGRIDDB_API_KEY=your_sgdb_key_here
-         - CHECK_INTERVAL_MINUTES=60
-         - DATABASE_PATH=/app/data/free_games.db
-         - LOG_LEVEL=INFO
-       volumes:
-         - /DATA/AppData/free-games-bot:/app/data
-   ```
-5. Click **Submit** and click **Install**.
+### Passaggi di Installazione tramite Web UI:
+1. Apri la dashboard del tuo server **CasaOS**.
+2. In alto a destra nella griglia delle app, clicca sul pulsante **`+`** ➔ **"Install a customized app"** (Installa un'app personalizzata).
+3. Nell'angolo in alto a destra della finestra modale, clicca sull'icona di importazione **"Import"** (icona con freccia/foglio).
+4. Incolla la seguente configurazione Compose:
 
-### Option B: Via Terminal / SSH on CasaOS (Recommended)
-1. SSH into your CasaOS server or open CasaOS Terminal:
-   ```bash
-   git clone https://github.com/your-username/free-games-bot.git /DATA/AppData/free-games-bot-app
-   cd /DATA/AppData/free-games-bot-app
-   ```
-2. Create and edit your `.env` file with your credentials:
-   ```bash
-   cp .env.example .env
-   nano .env
-   ```
-3. Start the bot with Docker Compose:
-   ```bash
-   docker compose up -d --build
-   ```
-4. CasaOS will automatically detect the container and display it on your CasaOS Web Dashboard! You can click the container icon to view live logs, CPU usage, and restart it anytime.
+```yaml
+name: free-games-bot
+services:
+  bot:
+    cpu_shares: 90
+    command: []
+    container_name: free-games-bot
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    environment:
+      - CHECK_INTERVAL_MINUTES=60
+      - DATABASE_PATH=/app/data/free_games.db
+      - LOG_LEVEL=INFO
+      - STEAMGRIDDB_API_KEY=your_steamgriddb_api_key
+      - TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+    hostname: free-games-bot
+    image: ghcr.io/andrea-01/free-games-bot:latest
+    labels:
+      icon: https://github.com/andrea-01/free-games-bot/blob/main/assets/bot_avatar.jpg?raw=true
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: /DATA/AppData/free-games-bot/data
+        target: /app/data
+    ports: []
+    devices: []
+    cap_add: []
+    network_mode: bridge
+    privileged: false
+x-casaos:
+  author: self
+  category: self
+  hostname: ""
+  icon: https://github.com/andrea-01/free-games-bot/blob/main/assets/bot_avatar.jpg?raw=true
+  index: /
+  is_uncontrolled: false
+  port_map: ""
+  scheme: http
+  store_app_id: free-games-bot
+  title:
+    custom: Game Deals Bot
+    en_us: bot
+```
+
+5. Sostituisci i valori di `TELEGRAM_BOT_TOKEN` e `STEAMGRIDDB_API_KEY` con i tuoi token reali.
+6. Clicca su **Submit** e poi su **Install**.
+7. L'applicazione comparirà nella dashboard con la propria icona personalizzata. Puoi visualizzare i log in tempo reale o riavviare/ricostruire il container facendo clic sui tre puntini dell'app ➔ **Settings / Rebuild**.
 
 ---
 
 ## 🧪 Testing
 
-Run the automated test suite:
+Esegui la suite di test automatizzati:
 ```bash
 pytest -v
 ```
