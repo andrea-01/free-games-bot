@@ -22,6 +22,15 @@ async def test_database_subscribers(tmp_path):
     assert await db.is_subscribed(12345) is False
     assert await db.get_active_subscribers() == []
 
+    # Test toggle_subscriber
+    new_state = await db.toggle_subscriber(12345)
+    assert new_state is True
+    assert await db.is_subscribed(12345) is True
+
+    new_state2 = await db.toggle_subscriber(12345)
+    assert new_state2 is False
+    assert await db.is_subscribed(12345) is False
+
 @pytest.mark.asyncio
 async def test_database_sent_deals(tmp_path):
     db_file = str(tmp_path / "test.db")

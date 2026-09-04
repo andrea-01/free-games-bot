@@ -18,12 +18,14 @@ Un bot Telegram avanzato per monitorare e ricevere notifiche istantanee sui gioc
   - Descrizione e sinossi del gioco
 - 🚀 **Riscatto con 1-Click**: Pulsante interattivo sotto ogni scheda per riscattare subito il titolo.
 - ⚙️ **Pannello Filtri Interattivo (/settings)**:
+  - **📢 Notifiche & Recap**: Stato iscrizione chiaramente visibile con toggle rapido 1-click (`[🔔 Notifiche: ATTIVE]` / `[🔕 Notifiche: DISATTIVATE]`).
   - **🏬 Store**: Abilita o disabilita singoli negozi.
   - **🏷️ Categorie**: Filtra in base ai generi di tuo interesse.
   - **💰 Prezzi & Soglie**: Imposta una soglia di listino minimo e un prezzo massimo per le offerte scontate.
   - **🎁 Toggle Listino per Giochi Gratis**: Opzione dedicata per non escludere mai i giochi al 100% gratuiti anche quando imposti un listino minimo sulle offerte a pagamento.
   - **⭐ Filtro Qualità / Anti-Spam**: Elimina shovelware e spam al 99% di sconto richiedendo un punteggio minimo di recensioni positive (≥ 70% o ≥ 80%) e recensori verificati da Steam e CheapShark.
-- 🔔 **Notifiche Automatiche Periodiche**: Controllo orario in background con avvisi automatici inviati a tutti gli iscritti.
+- 🌙 **Recap Serale delle 20:00 (Ora Italiana)**: Ogni sera alle ore 20:00 gli utenti iscritti ricevono un messaggio di riepilogo compatto con tutte le offerte attive pertinenti ai loro interessi, suddiviso in *Giochi Gratuiti* e *Migliori Offerte Scontate* (massimo 2 righe a gioco, con icone di genere, rating e link diretto per il riscatto).
+- 🔔 **Notifiche Automatiche Periodiche**: Controllo orario in background con avvisi istantanei sui nuovi giochi gratis.
 
 ---
 
@@ -34,15 +36,16 @@ Un bot Telegram avanzato per monitorare e ricevere notifiche istantanee sui gioc
 | `/start` | Avvia il bot, mostra il messaggio di benvenuto e iscrive alle notifiche |
 | `/free` | Mostra **solo i titoli 100% gratuiti** secondo i tuoi filtri |
 | `/deals` | Mostra **tutte le offerte** (giochi gratis + sconti) secondo i tuoi filtri |
+| `/recap` | Mostra il **riepilogo serale compatto** delle offerte attive pertinenti |
 | `/nofilter_free` (o `/nofilter-free`) | Mostra **tutti i giochi gratuiti disponibili senza alcun filtro** |
-| `/settings` | Pannello interattivo per gestire Store, Categorie, Prezzi e Filtro Qualità |
+| `/settings` | Pannello interattivo per gestire Notifiche, Store, Categorie, Prezzi e Filtro Qualità |
 | `/minprice [€]` | Imposta rapidamente il listino minimo (es. `/minprice 10` o `/minprice 0`) |
 | `/maxprice [€]` | Imposta il prezzo max per offerte a pagamento (es. `/maxprice 5` o `/maxprice 0`) |
 | `/epic` | Mostra promozioni attive e anticipazioni future di Epic Games Store |
 | `/steam` | Mostra promozioni e giveaway attivi su Steam |
 | `/check` | Cerca subito nuovi giochi non ancora ricevuti |
-| `/subscribe` | Attiva le notifiche automatiche periodiche |
-| `/unsubscribe` | Disattiva le notifiche automatiche |
+| `/subscribe` | Attiva le notifiche automatiche e il recap serale |
+| `/unsubscribe` | Disattiva le notifiche automatiche e il recap serale |
 | `/help` | Mostra la guida completa dei comandi |
 
 ---

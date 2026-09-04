@@ -156,6 +156,20 @@ class Database:
                 row = await cursor.fetchone()
                 return bool(row and row[0] == 1)
 
+    async def toggle_subscriber(self, chat_id: int, username: str = None, first_name: str = None) -> bool:
+        """Toggle subscriber active status between 1 and 0."""
+        is_sub = await self.is_subscribed(chat_id)
+        new_status = 0 if is_sub else 1
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("""
+                INSERT INTO subscribers (chat_id, username, first_name, is_active)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(chat_id) DO UPDATE SET
+                    is_active = excluded.is_active;
+            """, (chat_id, username, first_name, new_status))
+            await db.commit()
+        return bool(new_status == 1)
+
     async def get_active_subscribers(self) -> List[int]:
         """Return list of all active subscriber chat IDs."""
         async with aiosqlite.connect(self.db_path) as db:

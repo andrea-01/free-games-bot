@@ -42,3 +42,83 @@ async def test_unknown_message_handler():
     called_text2 = update_text.effective_message.reply_text.call_args[0][0]
     assert "Comando non riconosciuto" in called_text2
 
+@pytest.mark.asyncio
+async def test_recap_command(tmp_path):
+    from unittest.mock import AsyncMock, MagicMock
+    from free_games_bot.database import Database
+    from free_games_bot.fetchers.manager import DealManager
+    from free_games_bot.models import GameDeal
+
+    db = Database(db_path=str(tmp_path / "test_recap.db"))
+    await db.init_db()
+
+    deal_mgr = DealManager()
+    sample_deal = GameDeal(
+        id="test-deal-1",
+        title="Test Game 1",
+        store="Epic Games",
+        stock_price="19,99 €",
+        sale_price_value=0.0,
+        store_url="https://store.epicgames.com/test",
+        rating_percent=85,
+        reviews_count=1000,
+        genres=["Action"],
+    )
+    deal_mgr.fetch_all_deals = AsyncMock(return_value=[sample_deal])
+
+    bot = FreeGamesBot(db=db, deal_manager=deal_mgr)
+
+    update = MagicMock()
+    update.effective_chat.id = 99999
+    update.effective_user.username = "gamer"
+    status_msg = MagicMock()
+    status_msg.delete = AsyncMock()
+    update.effective_message.reply_text = AsyncMock(side_effect=[status_msg, None])
+
+    context = MagicMock()
+
+    await bot.recap_command(update, context)
+
+    # Should have sent status message and then recap chunk
+    assert update.effective_message.reply_text.call_count == 2
+    sent_recap = update.effective_message.reply_text.call_args[0][0]
+    assert "RECAP SERALE OFFERTE" in sent_recap
+    assert "Test Game 1" in sent_recap
+    assert "Riscatta su Epic Games" in sent_recap
+
+@pytest.mark.asyncio
+async def test_settings_toggle_sub_callback(tmp_path):
+    from unittest.mock import AsyncMock, MagicMock
+    from free_games_bot.database import Database
+
+    db = Database(db_path=str(tmp_path / "test_cb.db"))
+    await db.init_db()
+
+    bot = FreeGamesBot(db=db)
+
+    # Chat not yet subscribed
+    chat_id = 77777
+    update = MagicMock()
+    query = MagicMock()
+    query.message.chat.id = chat_id
+    query.from_user.username = "gamer77"
+    query.data = "toggle_sub"
+    query.answer = AsyncMock()
+    query.edit_message_text = AsyncMock()
+    update.callback_query = query
+
+    # Press toggle_sub -> should become subscribed
+    await bot.settings_callback(update, MagicMock())
+    assert await db.is_subscribed(chat_id) is True
+    query.edit_message_text.assert_called_once()
+    msg_text = query.edit_message_text.call_args[1]["text"]
+    assert "🔔 <b>ATTIVE</b>" in msg_text
+
+    # Press toggle_sub again -> should become unsubscribed
+    query.edit_message_text.reset_mock()
+    await bot.settings_callback(update, MagicMock())
+    assert await db.is_subscribed(chat_id) is False
+    query.edit_message_text.assert_called_once()
+    msg_text2 = query.edit_message_text.call_args[1]["text"]
+    assert "🔕 <b>DISATTIVATE</b>" in msg_text2
+

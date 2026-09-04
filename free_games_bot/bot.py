@@ -15,11 +15,14 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
+from datetime import time as dt_time
+from zoneinfo import ZoneInfo
 from free_games_bot.config import config
 from free_games_bot.database import Database, ALL_STORES, ALL_CATEGORIES
 from free_games_bot.fetchers.manager import DealManager
 from free_games_bot.formatter import (
     format_deal_message,
+    format_evening_recap,
     format_main_settings_message,
     build_main_settings_keyboard,
     format_stores_settings_message,
@@ -97,6 +100,7 @@ class FreeGamesBot:
         app.add_handler(CommandHandler(["settings", "impostazioni", "filtri"], self.settings_command))
         app.add_handler(CommandHandler("minprice", self.minprice_command))
         app.add_handler(CommandHandler("maxprice", self.maxprice_command))
+        app.add_handler(CommandHandler(["recap", "riassunto"], self.recap_command))
         app.add_handler(CommandHandler("subscribe", self.subscribe_command))
         app.add_handler(CommandHandler("unsubscribe", self.unsubscribe_command))
 
@@ -109,7 +113,7 @@ class FreeGamesBot:
         # Gestore globale degli errori
         app.add_error_handler(self.error_handler)
 
-        # Pianificazione controllo periodico in background
+        # Pianificazione controllo periodico in background e recap serale
         if app.job_queue:
             interval_seconds = max(60, config.check_interval_minutes * 60)
             app.job_queue.run_repeating(
@@ -118,7 +122,13 @@ class FreeGamesBot:
                 first=10,
                 name="periodic_deal_checker",
             )
-            logger.info(f"Pianificato controllo automatico ogni {config.check_interval_minutes} minuti.")
+            # Recap serale alle 20:00 (Europe/Rome) per gli iscritti
+            app.job_queue.run_daily(
+                self.evening_recap_job,
+                time=dt_time(hour=20, minute=0, tzinfo=ZoneInfo("Europe/Rome")),
+                name="evening_recap_job",
+            )
+            logger.info(f"Pianificato controllo periodico ogni {config.check_interval_minutes}m e recap serale alle 20:00 (Europe/Rome).")
 
         self.app = app
         return app
@@ -149,6 +159,7 @@ class FreeGamesBot:
                 "📌 <b>Comandi principali:</b>\n"
                 "• /free - Giochi 100% gratis attivi\n"
                 "• /deals - Tutte le offerte (gratis e sconti)\n"
+                "• /recap - Recap offerte personalizzate (ore 20:00)\n"
                 "• /nofilter-free - Tutti i giochi gratis senza filtri\n"
                 "• /settings - Personalizza filtri, store e prezzi\n"
                 "• /help - Elenco di tutti i comandi"
@@ -191,12 +202,13 @@ class FreeGamesBot:
             "• Dati completi (Anno, generi, singolo/multiplayer, recensioni)\n"
             "• Link diretti agli store in lingua italiana\n"
             "• Filtri avanzati per <b>Store</b>, <b>Categorie</b>, <b>Prezzi</b> e <b>Anti-Spam</b> (/settings)\n"
-            "• Notifiche automatiche sui nuovi giochi gratis\n\n"
+            "• Notifiche istantanee e recap serale alle 20:00 (/recap)\n\n"
             "📌 <b>Comandi principali:</b>\n"
             "/free - Mostra i giochi 100% gratis secondo i tuoi filtri\n"
             "/deals - Mostra tutte le offerte (gratis e sconti) filtrate\n"
+            "/recap - Riepilogo serale delle offerte pertinenti attive\n"
             "/nofilter_free - Tutti i giochi gratuiti disponibili senza filtri\n"
-            "/settings - Configura store, generi, soglie di prezzo e qualità\n"
+            "/settings - Configura store, generi, soglie di prezzo e notifiche\n"
             "/epic & /steam - Promozioni per store\n"
             "/check - Cerca nuovi arrivi non ancora ricevuti\n"
             "/subscribe - Abilitati alle notifiche periodiche\n"
@@ -227,8 +239,9 @@ class FreeGamesBot:
             "🛠 <b>Guida ai comandi di Free Games Bot:</b>\n\n"
             "/free - Mostra solo i titoli 100% gratuiti secondo i tuoi filtri\n"
             "/deals - Mostra l'elenco di tutte le offerte (gratis e sconti) filtrate\n"
+            "/recap - Riepilogo compatto serale delle offerte attive (inviato alle 20:00)\n"
             "/nofilter-free - Elenco di tutti i giochi gratuiti disponibili SENZA alcun filtro\n"
-            "/settings - Apri il pannello filtri (Store, Categorie, Prezzi & Qualità)\n"
+            "/settings - Pannello impostazioni (Store, Categorie, Prezzi, Qualità & Notifiche)\n"
             "/minprice [euro] - Imposta il valore minimo del gioco (es. <code>/minprice 10</code> o <code>/minprice 0</code>)\n"
             "/maxprice [euro] - Imposta il prezzo max per offerte a pagamento (es. <code>/maxprice 5</code> o <code>/maxprice 0</code>)\n"
             "/epic - Visualizza le offerte attive e future di Epic Games Store\n"
@@ -248,14 +261,15 @@ class FreeGamesBot:
         chat_id = update.effective_chat.id
         logger.info(f"[COMANDO /settings] Utente: @{user.username if user else 'N/A'} ({chat_id})")
 
+        is_sub = await self.db.is_subscribed(chat_id)
         stores = await self.db.get_user_stores(chat_id)
         categories = await self.db.get_user_categories(chat_id)
         min_stock, max_sale = await self.db.get_user_prices(chat_id)
         ignore_free = await self.db.get_user_ignore_min_on_free(chat_id)
         min_rating, _ = await self.db.get_user_rating_filter(chat_id)
 
-        text = format_main_settings_message(len(stores), len(categories), min_stock, max_sale, ignore_free, min_rating)
-        keyboard = build_main_settings_keyboard()
+        text = format_main_settings_message(len(stores), len(categories), min_stock, max_sale, ignore_free, min_rating, is_subscribed=is_sub)
+        keyboard = build_main_settings_keyboard(is_subscribed=is_sub)
         if update.effective_message:
             await update.effective_message.reply_text(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
@@ -333,16 +347,32 @@ class FreeGamesBot:
         logger.info(f"[CALLBACK] Utente: @{user.username if user else 'N/A'} ({chat_id}) ha premuto: {data}")
         await query.answer()
 
-        # 1. Navigazione tra sezioni
-        if data == "nav:main":
+        # 0. Toggle Iscrizione Notifiche (Subscribe / Unsubscribe)
+        if data == "toggle_sub":
+            new_sub_state = await self.db.toggle_subscriber(chat_id)
             stores = await self.db.get_user_stores(chat_id)
             categories = await self.db.get_user_categories(chat_id)
             min_stock, max_sale = await self.db.get_user_prices(chat_id)
             ignore_free = await self.db.get_user_ignore_min_on_free(chat_id)
             min_rating, _ = await self.db.get_user_rating_filter(chat_id)
             await query.edit_message_text(
-                text=format_main_settings_message(len(stores), len(categories), min_stock, max_sale, ignore_free, min_rating),
-                reply_markup=build_main_settings_keyboard(),
+                text=format_main_settings_message(len(stores), len(categories), min_stock, max_sale, ignore_free, min_rating, is_subscribed=new_sub_state),
+                reply_markup=build_main_settings_keyboard(is_subscribed=new_sub_state),
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        # 1. Navigazione tra sezioni
+        if data == "nav:main":
+            is_sub = await self.db.is_subscribed(chat_id)
+            stores = await self.db.get_user_stores(chat_id)
+            categories = await self.db.get_user_categories(chat_id)
+            min_stock, max_sale = await self.db.get_user_prices(chat_id)
+            ignore_free = await self.db.get_user_ignore_min_on_free(chat_id)
+            min_rating, _ = await self.db.get_user_rating_filter(chat_id)
+            await query.edit_message_text(
+                text=format_main_settings_message(len(stores), len(categories), min_stock, max_sale, ignore_free, min_rating, is_subscribed=is_sub),
+                reply_markup=build_main_settings_keyboard(is_subscribed=is_sub),
                 parse_mode=ParseMode.HTML,
             )
             return
@@ -697,6 +727,50 @@ class FreeGamesBot:
             await send_deal_message(context.bot, chat_id, deal)
             await self.db.mark_deal_sent(deal.id, chat_id, deal.title, deal.store)
 
+    async def recap_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Gestisce /recap: genera su richiesta il riepilogo serale delle offerte pertinenti attive."""
+        chat_id = update.effective_chat.id
+        user = update.effective_user
+        logger.info(f"[COMANDO /recap] Utente: @{user.username if user else 'N/A'} ({chat_id})")
+
+        msg = update.effective_message
+        if not msg:
+            return
+        status_msg = await msg.reply_text("🌙 <i>Preparazione del recap delle offerte in base ai tuoi interessi...</i>", parse_mode=ParseMode.HTML)
+
+        min_stock, max_sale = await self.db.get_user_prices(chat_id)
+        all_deals = await self.deal_manager.fetch_all_deals(
+            max_sale_price=max_sale,
+            min_stock_price=min_stock,
+        )
+
+        active_deals = [d for d in all_deals if not d.is_upcoming]
+
+        filtered_deals = []
+        for d in active_deals:
+            if not await self.db.is_deal_allowed_for_user(chat_id, d.store):
+                continue
+            if not await self.db.is_deal_category_allowed(chat_id, d.genres):
+                continue
+            if not await self.db.is_deal_price_allowed(chat_id, d.stock_price_value, d.sale_price_value):
+                continue
+            if not await self.db.is_deal_quality_allowed(chat_id, d.rating_percent, d.reviews_count, d.store):
+                continue
+            filtered_deals.append(d)
+
+        chunks = format_evening_recap(filtered_deals)
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
+
+        for chunk in chunks:
+            await msg.reply_text(
+                chunk,
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True,
+            )
+
     async def subscribe_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Gestisce /subscribe."""
         user = update.effective_user
@@ -710,7 +784,7 @@ class FreeGamesBot:
         )
         if update.effective_message:
             await update.effective_message.reply_text(
-                "🔔 <b>Notifiche attive!</b> Riceverai avvisi automatici quando un nuovo gioco gratuito è disponibile.\n"
+                "🔔 <b>Notifiche attive!</b> Riceverai avvisi automatici quando un nuovo gioco gratuito è disponibile e il recap serale alle 20:00.\n"
                 "Puoi personalizzare store, categorie e prezzi con /settings.",
                 parse_mode=ParseMode.HTML,
             )
@@ -724,11 +798,11 @@ class FreeGamesBot:
         await self.db.remove_subscriber(chat_id)
         if update.effective_message:
             await update.effective_message.reply_text(
-                "🔕 <b>Notifiche disattivate.</b> Non riceverai più notifiche automatiche. Potrai comunque consultare /free quando vuoi!",
+                "🔕 <b>Notifiche disattivate.</b> Non riceverai più notifiche automatiche né il recap serale. Potrai comunque consultare /free o /recap quando vuoi!",
                 parse_mode=ParseMode.HTML,
             )
 
-    # --- Job Periodico in Background ---
+    # --- Job Periodici in Background ---
 
     async def periodic_check_job(self, context: ContextTypes.DEFAULT_TYPE):
         """Controllo periodico in background con invio deal personalizzato per ogni utente."""
@@ -764,3 +838,42 @@ class FreeGamesBot:
 
         except Exception as e:
             logger.error(f"Errore durante il controllo periodico: {e}", exc_info=True)
+
+    async def evening_recap_job(self, context: ContextTypes.DEFAULT_TYPE):
+        """Job giornaliero alle 20:00 (Europe/Rome): invia il recap serale a tutti gli iscritti attivi."""
+        logger.info("[BACKGROUND] Avvio recap serale delle 20:00 per gli iscritti...")
+        try:
+            subscribers = await self.db.get_active_subscribers()
+            if not subscribers:
+                logger.info("[BACKGROUND RECAP] Nessun iscritto attivo.")
+                return
+
+            all_deals = await self.deal_manager.fetch_all_deals(force_refresh=True)
+            active_deals = [d for d in all_deals if not d.is_upcoming]
+
+            for chat_id in subscribers:
+                user_deals = []
+                for deal in active_deals:
+                    if not await self.db.is_deal_allowed_for_user(chat_id, deal.store):
+                        continue
+                    if not await self.db.is_deal_category_allowed(chat_id, deal.genres):
+                        continue
+                    if not await self.db.is_deal_price_allowed(chat_id, deal.stock_price_value, deal.sale_price_value):
+                        continue
+                    if not await self.db.is_deal_quality_allowed(chat_id, deal.rating_percent, deal.reviews_count, deal.store):
+                        continue
+                    user_deals.append(deal)
+
+                chunks = format_evening_recap(user_deals)
+                for chunk in chunks:
+                    try:
+                        await context.bot.send_message(
+                            chat_id=chat_id,
+                            text=chunk,
+                            parse_mode=ParseMode.HTML,
+                            disable_web_page_preview=True,
+                        )
+                    except Exception as e:
+                        logger.warning(f"[BACKGROUND RECAP] Errore invio recap a {chat_id}: {e}")
+        except Exception as e:
+            logger.error(f"[BACKGROUND RECAP] Errore imprevisto durante il recap serale: {e}", exc_info=True)

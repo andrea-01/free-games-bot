@@ -132,3 +132,77 @@ def test_deal_with_ratings():
     )
     caption, _ = format_deal_message(deal)
     assert "⭐ <b>Valutazione:</b> 92% positive (24.500 recensioni)" in caption
+
+def test_settings_subscription_toggle():
+    # Test subscribed
+    main_msg_sub = format_main_settings_message(2, 5, 10.0, 5.0, ignore_min_on_free=True, min_rating=70, is_subscribed=True)
+    assert "🔔 <b>ATTIVE</b>" in main_msg_sub
+    kb_sub = build_main_settings_keyboard(is_subscribed=True)
+    buttons = [b for row in kb_sub.inline_keyboard for b in row]
+    toggle_sub_btn = next(b for b in buttons if b.callback_data == "toggle_sub")
+    assert "🔔 Notifiche: ATTIVE" in toggle_sub_btn.text
+
+    # Test unsubscribed
+    main_msg_unsub = format_main_settings_message(2, 5, 10.0, 5.0, ignore_min_on_free=True, min_rating=70, is_subscribed=False)
+    assert "🔕 <b>DISATTIVATE</b>" in main_msg_unsub
+    kb_unsub = build_main_settings_keyboard(is_subscribed=False)
+    buttons_unsub = [b for row in kb_unsub.inline_keyboard for b in row]
+    toggle_unsub_btn = next(b for b in buttons_unsub if b.callback_data == "toggle_sub")
+    assert "🔕 Notifiche: DISATTIVATE" in toggle_unsub_btn.text
+
+def test_format_evening_recap():
+    from free_games_bot.formatter import format_evening_recap
+
+    # Test empty deals
+    empty_recap = format_evening_recap([])
+    assert len(empty_recap) == 1
+    assert "Nessuna offerta pertinente attiva al momento" in empty_recap[0]
+
+    # Test populated deals: 1 free, 1 discounted
+    free_deal = GameDeal(
+        id="free-1",
+        title="Death Stranding",
+        store="Epic Games",
+        stock_price="39,99 €",
+        sale_price_value=0.0,
+        store_url="https://store.epicgames.com/death-stranding",
+        rating_percent=93,
+        reviews_count=85000,
+        genres=["Action", "Adventure"],
+    )
+    discounted_deal = GameDeal(
+        id="disc-1",
+        title="Cyberpunk 2077",
+        store="Steam",
+        stock_price="59,99 €",
+        sale_price_value=29.99,
+        store_url="https://store.steampowered.com/app/1091500",
+        rating_percent=89,
+        reviews_count=650000,
+        genres=["RPG", "Action"],
+    )
+
+    chunks = format_evening_recap([free_deal, discounted_deal])
+    assert len(chunks) == 1
+    text = chunks[0]
+
+    # Check headers
+    assert "RECAP SERALE OFFERTE" in text
+    assert "GIOCHI GRATUITI" in text
+    assert "OFFERTE SCONTATE" in text
+
+    # Check free game formatting: link text "Riscatta su Epic Games"
+    assert "Death Stranding" in text
+    assert "Riscatta su Epic Games" in text
+    assert "39,99 €" in text
+    assert "93%" in text
+
+    # Check discounted game formatting: link text "Vedi su Steam"
+    assert "Cyberpunk 2077" in text
+    assert "Vedi su Steam" in text
+    assert "-50%" in text
+    assert "29,99 €" in text
+    assert "89%" in text
+
+    # Check category icons (Action -> ⚔️ or RPG -> 🛡️)
+    assert "⚔️" in text or "🛡️" in text

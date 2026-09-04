@@ -1,9 +1,26 @@
-"""Message formatting and inline keyboard builder in Italian for Telegram."""
 import html
-from typing import Tuple, Set, Optional
+from datetime import datetime
+from zoneinfo import ZoneInfo
+from typing import Tuple, Set, Optional, List
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from free_games_bot.models import GameDeal, format_price_eur
-from free_games_bot.database import ALL_STORES, ALL_CATEGORIES
+from free_games_bot.database import ALL_STORES, ALL_CATEGORIES, normalize_deal_category
+
+# Icone per le categorie per il recap serale
+CATEGORY_ICONS = {
+    "Azione": "⚔️",
+    "Avventura": "🗺️",
+    "GDR / RPG": "🛡️",
+    "Strategia": "♟️",
+    "Sparatutto": "🎯",
+    "Corse": "🏎️",
+    "Sport": "⚽",
+    "Simulazione": "✈️",
+    "Puzzle": "🧩",
+    "Horror": "🧟",
+    "Indie": "👾",
+    "Altro": "🎮",
+}
 
 # Telegram photo caption character limit is 1024
 MAX_CAPTION_LENGTH = 1024
@@ -100,9 +117,11 @@ def format_main_settings_message(
     min_stock: float,
     max_sale: float,
     ignore_min_on_free: bool = True,
-    min_rating: int = 0
+    min_rating: int = 0,
+    is_subscribed: bool = True,
 ) -> str:
-    """Main settings overview message."""
+    """Main settings overview message with subscription status."""
+    sub_status_str = "🔔 <b>ATTIVE</b> (Ricevi notifiche e recap serale)" if is_subscribed else "🔕 <b>DISATTIVATE</b> (Nessuna notifica automatica)"
     min_stock_str = f"≥ {min_stock:.2f}".replace(".", ",") + " €" if min_stock > 0 else "Nessun limite (Tutti)"
     max_sale_str = f"≤ {max_sale:.2f}".replace(".", ",") + " €" if max_sale > 0 else "Solo Gratis (0,00 €)"
     ignore_free_str = "Sì (Sempre visibili)" if ignore_min_on_free else "No (Filtro attivo anche sui gratis)"
@@ -111,18 +130,23 @@ def format_main_settings_message(
     return (
         "⚙️ <b>Impostazioni & Filtri</b>\n\n"
         "Personalizza quali notifiche e giochi visualizzare:\n\n"
+        f"📢 <b>Notifiche:</b> {sub_status_str}\n"
         f"🏬 <b>Store abilitati:</b> {stores_count} / {len(ALL_STORES)}\n"
         f"🏷️ <b>Categorie abilitate:</b> {cats_count} / {len(ALL_CATEGORIES)}\n"
         f"💰 <b>Listino minimo:</b> {min_stock_str}\n"
         f"🏷️ <b>Prezzo max offerta:</b> {max_sale_str}\n"
         f"🎁 <b>Ignora listino se 100% Gratis:</b> {ignore_free_str}\n"
         f"⭐ <b>Filtro qualità/anti-spam:</b> {rating_str}\n\n"
-        "<i>Seleziona una sezione qui sotto per modificarla:</i>"
+        "<i>Tocca un pulsante qui sotto per attivare/disattivare le notifiche o modificare i filtri:</i>"
     )
 
-def build_main_settings_keyboard() -> InlineKeyboardMarkup:
-    """Main settings menu keyboard."""
+def build_main_settings_keyboard(is_subscribed: bool = True) -> InlineKeyboardMarkup:
+    """Main settings menu keyboard with notification toggle."""
+    toggle_text = "🔔 Notifiche: ATTIVE (Tocca per disattivare)" if is_subscribed else "🔕 Notifiche: DISATTIVATE (Tocca per attivare)"
     return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(text=toggle_text, callback_data="toggle_sub"),
+        ],
         [
             InlineKeyboardButton(text="🏬 Store", callback_data="nav:stores"),
             InlineKeyboardButton(text="🏷️ Categorie", callback_data="nav:categories"),
@@ -134,6 +158,113 @@ def build_main_settings_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="✅ Chiudi", callback_data="nav:close"),
         ]
     ])
+
+def format_evening_recap(deals: List[GameDeal]) -> List[str]:
+    """
+    Format active deals into a compact evening recap list (divided into Free and Discounted).
+    Each game occupies at most 2 lines:
+    Line 1: [Icon] [Title] • [Price / Discount]
+    Line 2: [⭐ Rating] • [Riscatta/Vedi su Store link]
+    Returns list of message chunks (respecting Telegram's 4096 char limit).
+    """
+    free_deals = [d for d in deals if d.sale_price_value <= 0.01 and not d.is_upcoming]
+    discounted_deals = [d for d in deals if d.sale_price_value > 0.01 and not d.is_upcoming]
+
+    date_str = datetime.now(ZoneInfo("Europe/Rome")).strftime("%d/%m/%Y")
+
+    header = (
+        f"🌙 <b>RECAP SERALE OFFERTE PC</b> — <i>{date_str}</i>\n"
+        "<i>Ecco il riepilogo delle migliori offerte attive secondo i tuoi filtri:</i>\n\n"
+    )
+
+    items: List[str] = []
+
+    if free_deals:
+        items.append(f"🎁 <b>GIOCHI GRATUITI ({len(free_deals)})</b>\n")
+        for deal in free_deals:
+            cat = normalize_deal_category(deal.genres[0]) if deal.genres else "Altro"
+            icon = CATEGORY_ICONS.get(cat, "🎮")
+            title = deal.clean_title()
+            if len(title) > 36:
+                title = title[:33].rstrip() + "..."
+            title_esc = html.escape(title)
+
+            if deal.stock_price and deal.stock_price != "Gratis":
+                price_str = f"<s>{html.escape(deal.stock_price)}</s> ➔ <b>GRATIS</b>"
+            else:
+                price_str = "<b>GRATIS (100%)</b>"
+
+            line1 = f"{icon} <b>{title_esc}</b> • {price_str}"
+
+            link_html = f'<a href="{html.escape(deal.store_url)}">Riscatta su {html.escape(deal.store)}</a>'
+            if deal.rating_percent is not None:
+                if deal.reviews_count and deal.reviews_count >= 1000:
+                    c_str = f"{deal.reviews_count / 1000:.1f}k".replace(".0k", "k")
+                elif deal.reviews_count:
+                    c_str = str(deal.reviews_count)
+                else:
+                    c_str = None
+                r_part = f"⭐ {deal.rating_percent}%" + (f" ({c_str})" if c_str else "")
+                line2 = f"{r_part} • {link_html}"
+            else:
+                line2 = f"🏷️ {html.escape(cat)} • {link_html}"
+
+            items.append(f"{line1}\n{line2}\n")
+
+    if discounted_deals:
+        if free_deals:
+            items.append("\n")
+        items.append(f"🔥 <b>OFFERTE SCONTATE ({len(discounted_deals)})</b>\n")
+        for deal in discounted_deals:
+            cat = normalize_deal_category(deal.genres[0]) if deal.genres else "Altro"
+            icon = CATEGORY_ICONS.get(cat, "🎮")
+            title = deal.clean_title()
+            if len(title) > 36:
+                title = title[:33].rstrip() + "..."
+            title_esc = html.escape(title)
+
+            sale_str = format_price_eur(deal.sale_price_value)
+            if deal.stock_price_value > deal.sale_price_value:
+                discount = int(round((1 - (deal.sale_price_value / deal.stock_price_value)) * 100))
+                price_str = f"<s>{html.escape(deal.stock_price)}</s> ➔ <b>{sale_str}</b> (-{discount}%)"
+            else:
+                price_str = f"<b>{sale_str}</b>"
+
+            line1 = f"{icon} <b>{title_esc}</b> • {price_str}"
+
+            link_html = f'<a href="{html.escape(deal.store_url)}">Vedi su {html.escape(deal.store)}</a>'
+            if deal.rating_percent is not None:
+                if deal.reviews_count and deal.reviews_count >= 1000:
+                    c_str = f"{deal.reviews_count / 1000:.1f}k".replace(".0k", "k")
+                elif deal.reviews_count:
+                    c_str = str(deal.reviews_count)
+                else:
+                    c_str = None
+                r_part = f"⭐ {deal.rating_percent}%" + (f" ({c_str})" if c_str else "")
+                line2 = f"{r_part} • {link_html}"
+            else:
+                line2 = f"🏷️ {html.escape(cat)} • {link_html}"
+
+            items.append(f"{line1}\n{line2}\n")
+
+    footer = "\n💡 <i>Personalizza o disattiva il recap serale dalle impostazioni con /settings</i>"
+
+    if not items:
+        return [header + "ℹ️ Nessuna offerta pertinente attiva al momento secondo i tuoi filtri.\n" + footer]
+
+    chunks: List[str] = []
+    current_chunk = header
+    for item in items:
+        if len(current_chunk) + len(item) + len(footer) > 3800:
+            chunks.append(current_chunk)
+            current_chunk = item
+        else:
+            current_chunk += item
+
+    current_chunk += footer
+    chunks.append(current_chunk)
+
+    return chunks
 
 # --- Stores Submenu ---
 
