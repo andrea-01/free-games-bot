@@ -3,6 +3,8 @@ import logging
 from typing import Optional, Set
 from telegram import Update
 from telegram.constants import ParseMode
+from telegram.request import HTTPXRequest
+from telegram.error import TimedOut, NetworkError
 from telegram.ext import (
     Application,
     ApplicationBuilder,
@@ -70,7 +72,14 @@ class FreeGamesBot:
         if not config.telegram_bot_token:
             raise ValueError("TELEGRAM_BOT_TOKEN non è impostato nelle variabili d'ambiente o nel file .env.")
 
-        builder = ApplicationBuilder().token(config.telegram_bot_token)
+        # Timeout resilienti per evitare disconnessioni o ritardi di rete
+        request_config = HTTPXRequest(
+            connect_timeout=15.0,
+            read_timeout=25.0,
+            write_timeout=25.0,
+            pool_timeout=10.0,
+        )
+        builder = ApplicationBuilder().token(config.telegram_bot_token).request(request_config)
         app = builder.build()
 
         # Comandi utente
@@ -112,6 +121,9 @@ class FreeGamesBot:
 
     async def error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Logga eventuali eccezioni non gestite."""
+        if isinstance(context.error, (TimedOut, NetworkError)):
+            logger.warning(f"[RETE TELEGRAM] Timeout o connessione lenta temporanea: {context.error}")
+            return
         logger.error("Errore imprevisto durante la gestione di un aggiornamento:", exc_info=context.error)
 
     # --- Comandi Utente ---
@@ -154,7 +166,8 @@ class FreeGamesBot:
             "/check - Controlla nuovi arrivi non ancora ricevuti\n"
             "/help - Mostra la guida completa dei comandi"
         )
-        await update.message.reply_text(welcome_text, parse_mode=ParseMode.HTML)
+        if update.effective_message:
+            await update.effective_message.reply_text(welcome_text, parse_mode=ParseMode.HTML)
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Gestisce il comando /help."""
@@ -177,7 +190,8 @@ class FreeGamesBot:
             "/help - Mostra questo messaggio di aiuto\n\n"
             "💡 <i>Tocca il pulsante sotto a ciascuna scheda per riscattare subito il gioco nello store italiano.</i>"
         )
-        await update.message.reply_text(help_text, parse_mode=ParseMode.HTML)
+        if update.effective_message:
+            await update.effective_message.reply_text(help_text, parse_mode=ParseMode.HTML)
 
     async def settings_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Gestisce il comando /settings: apre il menu principale delle impostazioni."""
@@ -193,17 +207,21 @@ class FreeGamesBot:
 
         text = format_main_settings_message(len(stores), len(categories), min_stock, max_sale, ignore_free, min_rating)
         keyboard = build_main_settings_keyboard()
-        await update.message.reply_text(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
+        if update.effective_message:
+            await update.effective_message.reply_text(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
     async def minprice_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Imposta rapidamente la soglia di listino minimo via comando."""
         chat_id = update.effective_chat.id
         user = update.effective_user
+        msg = update.effective_message
+        if not msg:
+            return
 
         if not context.args:
             min_stock, _ = await self.db.get_user_prices(chat_id)
             current_str = f"{min_stock:.2f}".replace(".", ",") + " €" if min_stock > 0 else "Nessun limite (0,00 €)"
-            await update.message.reply_text(
+            await msg.reply_text(
                 f"💰 <b>Listino minimo attuale:</b> {current_str}\n\n"
                 "Usa <code>/minprice [importo]</code> per cambiarlo (es. <code>/minprice 10</code>) o <code>/minprice 0</code> per azzerare.",
                 parse_mode=ParseMode.HTML,
@@ -216,20 +234,23 @@ class FreeGamesBot:
         logger.info(f"[IMPOSTAZIONI /minprice] Utente: @{user.username if user else 'N/A'} ({chat_id}) ha impostato min_stock a {new_val}€")
 
         if new_val <= 0:
-            await update.message.reply_text("✅ <b>Filtro listino minimo disattivato.</b> Riceverai giochi con qualsiasi valore originale.", parse_mode=ParseMode.HTML)
+            await msg.reply_text("✅ <b>Filtro listino minimo disattivato.</b> Riceverai giochi con qualsiasi valore originale.", parse_mode=ParseMode.HTML)
         else:
             formatted = f"{new_val:.2f}".replace(".", ",") + " €"
-            await update.message.reply_text(f"✅ <b>Listino minimo impostato a {formatted}.</b> Riceverai solo giochi con valore originale pari o superiore.", parse_mode=ParseMode.HTML)
+            await msg.reply_text(f"✅ <b>Listino minimo impostato a {formatted}.</b> Riceverai solo giochi con valore originale pari o superiore.", parse_mode=ParseMode.HTML)
 
     async def maxprice_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Imposta rapidamente la soglia massima per offerte scontate via comando."""
         chat_id = update.effective_chat.id
         user = update.effective_user
+        msg = update.effective_message
+        if not msg:
+            return
 
         if not context.args:
             _, max_sale = await self.db.get_user_prices(chat_id)
             current_str = f"≤ {max_sale:.2f}".replace(".", ",") + " €" if max_sale > 0 else "Solo 100% GRATIS (0,00 €)"
-            await update.message.reply_text(
+            await msg.reply_text(
                 f"💰 <b>Prezzo max offerta attuale:</b> {current_str}\n\n"
                 "Usa <code>/maxprice [importo]</code> per cambiarlo (es. <code>/maxprice 5</code>) o <code>/maxprice 0</code> per soli giochi gratuiti.",
                 parse_mode=ParseMode.HTML,
@@ -242,10 +263,10 @@ class FreeGamesBot:
         logger.info(f"[IMPOSTAZIONI /maxprice] Utente: @{user.username if user else 'N/A'} ({chat_id}) ha impostato max_sale a {new_val}€")
 
         if new_val <= 0:
-            await update.message.reply_text("✅ <b>Filtro offerte impostato su SOLO GRATIS (0,00 €).</b>", parse_mode=ParseMode.HTML)
+            await msg.reply_text("✅ <b>Filtro offerte impostato su SOLO GRATIS (0,00 €).</b>", parse_mode=ParseMode.HTML)
         else:
             formatted = f"{new_val:.2f}".replace(".", ",") + " €"
-            await update.message.reply_text(f"✅ <b>Filtro offerte impostato su ≤ {formatted}.</b> Riceverai sia giochi gratis sia sconti sotto questa soglia.", parse_mode=ParseMode.HTML)
+            await msg.reply_text(f"✅ <b>Filtro offerte impostato su ≤ {formatted}.</b> Riceverai sia giochi gratis sia sconti sotto questa soglia.", parse_mode=ParseMode.HTML)
 
     # --- Gestione Callback Impostazioni ---
 
@@ -438,7 +459,10 @@ class FreeGamesBot:
         user = update.effective_user
         logger.info(f"[COMANDO /free] Utente: @{user.username if user else 'N/A'} ({chat_id})")
 
-        status_msg = await update.message.reply_text("🔍 <i>Ricerca giochi gratuiti attivi...</i>", parse_mode=ParseMode.HTML)
+        msg = update.effective_message
+        if not msg:
+            return
+        status_msg = await msg.reply_text("🔍 <i>Ricerca giochi gratuiti attivi...</i>", parse_mode=ParseMode.HTML)
 
         min_stock, _ = await self.db.get_user_prices(chat_id)
         all_deals = await self.deal_manager.fetch_all_deals(
@@ -479,7 +503,10 @@ class FreeGamesBot:
         user = update.effective_user
         logger.info(f"[COMANDO /deals] Utente: @{user.username if user else 'N/A'} ({chat_id})")
 
-        status_msg = await update.message.reply_text("🔍 <i>Ricerca offerte e promozioni secondo i tuoi filtri...</i>", parse_mode=ParseMode.HTML)
+        msg = update.effective_message
+        if not msg:
+            return
+        status_msg = await msg.reply_text("🔍 <i>Ricerca offerte e promozioni secondo i tuoi filtri...</i>", parse_mode=ParseMode.HTML)
 
         min_stock, max_sale = await self.db.get_user_prices(chat_id)
         all_deals = await self.deal_manager.fetch_all_deals(
@@ -520,7 +547,10 @@ class FreeGamesBot:
         user = update.effective_user
         logger.info(f"[COMANDO /nofilter-free] Utente: @{user.username if user else 'N/A'} ({chat_id})")
 
-        status_msg = await update.message.reply_text("🔍 <i>Recupero di TUTTI i giochi gratuiti disponibili senza filtri...</i>", parse_mode=ParseMode.HTML)
+        msg = update.effective_message
+        if not msg:
+            return
+        status_msg = await msg.reply_text("🔍 <i>Recupero di TUTTI i giochi gratuiti disponibili senza filtri...</i>", parse_mode=ParseMode.HTML)
 
         all_deals = await self.deal_manager.fetch_all_deals(
             max_sale_price=0.0,
@@ -546,7 +576,10 @@ class FreeGamesBot:
         chat_id = update.effective_chat.id
         logger.info(f"[COMANDO /epic] Utente: @{user.username if user else 'N/A'} ({chat_id})")
 
-        status_msg = await update.message.reply_text("🔍 <i>Recupero promozioni di Epic Games Store...</i>", parse_mode=ParseMode.HTML)
+        msg = update.effective_message
+        if not msg:
+            return
+        status_msg = await msg.reply_text("🔍 <i>Recupero promozioni di Epic Games Store...</i>", parse_mode=ParseMode.HTML)
         deals = await self.deal_manager.get_epic_deals()
 
         if not deals:
@@ -564,7 +597,10 @@ class FreeGamesBot:
         chat_id = update.effective_chat.id
         logger.info(f"[COMANDO /steam] Utente: @{user.username if user else 'N/A'} ({chat_id})")
 
-        status_msg = await update.message.reply_text("🔍 <i>Recupero promozioni Steam...</i>", parse_mode=ParseMode.HTML)
+        msg = update.effective_message
+        if not msg:
+            return
+        status_msg = await msg.reply_text("🔍 <i>Recupero promozioni Steam...</i>", parse_mode=ParseMode.HTML)
         deals = await self.deal_manager.get_steam_deals()
 
         if not deals:
@@ -582,7 +618,10 @@ class FreeGamesBot:
         chat_id = update.effective_chat.id
         logger.info(f"[COMANDO /check] Utente: @{user.username if user else 'N/A'} ({chat_id})")
 
-        status_msg = await update.message.reply_text("🔄 <i>Controllo nuovi arrivi non ancora ricevuti...</i>", parse_mode=ParseMode.HTML)
+        msg = update.effective_message
+        if not msg:
+            return
+        status_msg = await msg.reply_text("🔄 <i>Controllo nuovi arrivi non ancora ricevuti...</i>", parse_mode=ParseMode.HTML)
 
         min_stock, max_sale = await self.db.get_user_prices(chat_id)
         sent_deal_ids = await self.db.get_sent_deal_ids_for_chat(chat_id)
@@ -620,11 +659,12 @@ class FreeGamesBot:
             username=user.username if user else None,
             first_name=user.first_name if user else None,
         )
-        await update.message.reply_text(
-            "🔔 <b>Notifiche attive!</b> Riceverai avvisi automatici quando un nuovo gioco gratuito è disponibile.\n"
-            "Puoi personalizzare store, categorie e prezzi con /settings.",
-            parse_mode=ParseMode.HTML,
-        )
+        if update.effective_message:
+            await update.effective_message.reply_text(
+                "🔔 <b>Notifiche attive!</b> Riceverai avvisi automatici quando un nuovo gioco gratuito è disponibile.\n"
+                "Puoi personalizzare store, categorie e prezzi con /settings.",
+                parse_mode=ParseMode.HTML,
+            )
 
     async def unsubscribe_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Gestisce /unsubscribe."""
@@ -633,10 +673,11 @@ class FreeGamesBot:
         logger.info(f"[COMANDO /unsubscribe] Utente: @{user.username if user else 'N/A'} ({chat_id})")
 
         await self.db.remove_subscriber(chat_id)
-        await update.message.reply_text(
-            "🔕 <b>Notifiche disattivate.</b> Non riceverai più notifiche automatiche. Potrai comunque consultare /free quando vuoi!",
-            parse_mode=ParseMode.HTML,
-        )
+        if update.effective_message:
+            await update.effective_message.reply_text(
+                "🔕 <b>Notifiche disattivate.</b> Non riceverai più notifiche automatiche. Potrai comunque consultare /free quando vuoi!",
+                parse_mode=ParseMode.HTML,
+            )
 
     # --- Job Periodico in Background ---
 
