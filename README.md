@@ -4,35 +4,41 @@ A Telegram bot that monitors and alerts you about 100% free PC game giveaways ac
 
 ---
 
-## ✨ Features
+## ✨ Caratteristiche / Features
 
-- 🖼 **High-Resolution Game Cover**: Direct from SteamGridDB (600x900 poster grids) or official store key assets.
-- 💰 **Stock Price & Discount**: Displays original regular price (e.g. `<s>$19.99</s> ➔ FREE (100% OFF)`).
-- 🏷 **Rich Metadata**:
-  - Release Year (e.g. `2016`)
-  - Genre Tags (e.g. `Adventure, Indie, Sci-Fi`)
-  - Player Modes (`👤 Single-player`, `👥 Multi-player`, `🤝 Co-op`)
-  - Expiry / Offer End Date
-  - Brief description
-- 🚀 **1-Click Claim**: Interactive Telegram button directly opening the store page.
-- 🔔 **Automated Background Alerts**: Automatically notifies all subscribed users whenever a new free game is detected (runs every hour, customizable).
-- ⏳ **Upcoming Deals**: Teasers for upcoming Epic Games giveaways so you never miss what's coming next week.
+- 🖼 **Locandine ad alta risoluzione**: Da SteamGridDB (poster verticali 600x900) o store ufficiali.
+- 💰 **Prezzi in Euro (€)**: Visualizzazione del prezzo di listino e dell'eventuale sconto (es. `<s>19,99 €</s> ➔ GRATIS (100% di sconto)`).
+- 🇮🇹 **Pagine Store Italiane**: Link diretti alle pagine in lingua italiana degli store ufficiali.
+- 🏷 **Metadati Completi**:
+  - Anno di rilascio (es. `2024`)
+  - Categorie e generi (es. `Avventura, Indie, GDR`)
+  - Modalità (`👤 Giocatore singolo`, `👥 Multigiocatore`, `🤝 Co-op`)
+  - Scadenza / Termine dell'offerta
+  - Descrizione del gioco
+- 🚀 **Riscatto con 1-Click**: Pulsante interattivo Telegram che apre direttamente la pagina dello store.
+- ⚙️ **Filtri Personalizzati (/settings)**:
+  - **🏬 Store**: Abilita o disabilita singoli store (Epic, Steam, GOG, ecc.)
+  - **🏷️ Categorie**: Filtra per generi preferiti (Azione, GDR, Strategia, ecc.)
+  - **💰 Prezzi & Soglie**: Imposta un prezzo minimo di listino o includi sconti sotto soglia via CheapShark!
+- 🔔 **Avvisi Automatici Periodici**: Notifica automatica oraria di nuovi giochi disponibili per tutti gli iscritti.
 
 ---
 
-## 🛠 Commands
+## 🛠 Comandi / Commands
 
-| Command | Description |
+| Comando | Descrizione |
 |---|---|
-| `/start` | Starts the bot and automatically subscribes you to deal notifications |
-| `/free` or `/deals` | Fetches and displays all active 100% free PC games right now |
-| `/settings` | Toggle which stores you want to receive alerts from (Epic, Steam, GOG, etc.) |
-| `/epic` | Shows current and upcoming free games on Epic Games Store |
-| `/steam` | Shows free promotions on Steam |
-| `/check` | Checks for newly released games matching your store preferences |
-| `/subscribe` | Enables automated background deal alerts |
-| `/unsubscribe` | Disables automated alerts (you can still use `/free` anytime) |
-| `/help` | Displays command list and instructions |
+| `/start` | Avvia il bot e iscrive automaticamente agli avvisi |
+| `/free` (o `/deals`) | Mostra tutti i giochi gratuiti disponibili secondo i tuoi filtri |
+| `/settings` | Menu interattivo: gestisci filtri per Store, Categorie e Prezzi |
+| `/minprice [€]` | Imposta il valore minimo del gioco (es. `/minprice 10` o `/minprice 0`) |
+| `/maxprice [€]` | Imposta prezzo max per offerte a pagamento (es. `/maxprice 5` o `/maxprice 0`) |
+| `/epic` | Mostra promozioni attive e future di Epic Games Store |
+| `/steam` | Mostra promozioni e giveaway Steam |
+| `/check` | Controlla nuovi arrivi non ancora ricevuti |
+| `/subscribe` | Attiva le notifiche automatiche periodiche |
+| `/unsubscribe` | Disattiva le notifiche automatiche |
+| `/help` | Guida completa ai comandi |
 
 ---
 

@@ -2,7 +2,7 @@
 import logging
 from typing import List
 from free_games_bot.fetchers.base import BaseFetcher
-from free_games_bot.models import GameDeal
+from free_games_bot.models import GameDeal, extract_price_float, format_price_eur
 
 logger = logging.getLogger(__name__)
 
@@ -46,9 +46,9 @@ class GamerPowerFetcher(BaseFetcher):
                 continue
 
             title = item.get("title", "")
-            worth = item.get("worth", "$0.00")
-            if worth in ("N/A", "0", "$0", "$0.00"):
-                worth = "Free"
+            worth_raw = item.get("worth", "")
+            worth_val = extract_price_float(worth_raw)
+            worth = format_price_eur(worth_val) if worth_val > 0 else "Gratis"
 
             platforms = item.get("platforms", "PC")
             store = self._normalize_store(platforms)

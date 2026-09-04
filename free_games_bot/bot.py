@@ -1,5 +1,4 @@
-"""Telegram bot handlers, store preferences, and background periodic deal notifier."""
-import json
+"""Telegram bot handlers, Italian localization, activity logging, and filtering by store, category, and price."""
 import logging
 from typing import Optional, Set
 from telegram import Update
@@ -12,19 +11,25 @@ from telegram.ext import (
     ContextTypes,
 )
 from free_games_bot.config import config
-from free_games_bot.database import Database, ALL_STORES
+from free_games_bot.database import Database, ALL_STORES, ALL_CATEGORIES
 from free_games_bot.fetchers.manager import DealManager
 from free_games_bot.formatter import (
     format_deal_message,
-    format_settings_message,
-    build_settings_keyboard,
+    format_main_settings_message,
+    build_main_settings_keyboard,
+    format_stores_settings_message,
+    build_stores_keyboard,
+    format_categories_settings_message,
+    build_categories_keyboard,
+    format_prices_settings_message,
+    build_prices_keyboard,
 )
-from free_games_bot.models import GameDeal
+from free_games_bot.models import GameDeal, extract_price_float, format_price_eur
 
 logger = logging.getLogger(__name__)
 
 async def send_deal_message(bot, chat_id: int, deal: GameDeal):
-    """Send a deal to a chat with its cover image, falling back to text if image fails."""
+    """Invia un deal con la cover ad alta risoluzione, con fallback a messaggio di testo."""
     caption, reply_markup = format_deal_message(deal)
 
     if deal.cover_url:
@@ -38,9 +43,8 @@ async def send_deal_message(bot, chat_id: int, deal: GameDeal):
             )
             return
         except Exception as e:
-            logger.warning(f"Failed to send deal photo ({deal.cover_url}) to {chat_id}: {e}. Falling back to text message.")
+            logger.warning(f"Impossibile inviare la foto ({deal.cover_url}) a {chat_id}: {e}. Invio messaggio di testo...")
 
-    # Fallback to plain text message
     await bot.send_message(
         chat_id=chat_id,
         text=caption,
@@ -56,35 +60,37 @@ class FreeGamesBot:
         self.app: Optional[Application] = None
 
     async def init(self):
-        """Initialize database and internal services."""
+        """Inizializza il database e i servizi interni."""
         await self.db.init_db()
 
     def build_application(self) -> Application:
-        """Create and configure Telegram Application."""
+        """Crea e configura l'applicazione Telegram con gestori e job queue."""
         if not config.telegram_bot_token:
-            raise ValueError("TELEGRAM_BOT_TOKEN is not set in environment or .env file.")
+            raise ValueError("TELEGRAM_BOT_TOKEN non è impostato nelle variabili d'ambiente o nel file .env.")
 
         builder = ApplicationBuilder().token(config.telegram_bot_token)
         app = builder.build()
 
-        # Register command handlers
+        # Comandi utente
         app.add_handler(CommandHandler("start", self.start_command))
         app.add_handler(CommandHandler("help", self.help_command))
-        app.add_handler(CommandHandler(["free", "deals"], self.free_command))
+        app.add_handler(CommandHandler(["free", "deals", "giochi"], self.free_command))
         app.add_handler(CommandHandler("epic", self.epic_command))
         app.add_handler(CommandHandler("steam", self.steam_command))
         app.add_handler(CommandHandler("check", self.check_command))
-        app.add_handler(CommandHandler("settings", self.settings_command))
+        app.add_handler(CommandHandler(["settings", "impostazioni", "filtri"], self.settings_command))
+        app.add_handler(CommandHandler("minprice", self.minprice_command))
+        app.add_handler(CommandHandler("maxprice", self.maxprice_command))
         app.add_handler(CommandHandler("subscribe", self.subscribe_command))
         app.add_handler(CommandHandler("unsubscribe", self.unsubscribe_command))
 
-        # Register callback query handlers for interactive store toggle buttons
-        app.add_handler(CallbackQueryHandler(self.settings_callback, pattern=r"^(toggle|preset):"))
+        # Callback per menu interattivo
+        app.add_handler(CallbackQueryHandler(self.settings_callback))
 
-        # Register global error handler
+        # Gestore globale degli errori
         app.add_error_handler(self.error_handler)
 
-        # Setup background periodic checker
+        # Pianificazione controllo periodico in background
         if app.job_queue:
             interval_seconds = max(60, config.check_interval_minutes * 60)
             app.job_queue.run_repeating(
@@ -93,219 +99,438 @@ class FreeGamesBot:
                 first=10,
                 name="periodic_deal_checker",
             )
-            logger.info(f"Scheduled periodic deal checker every {config.check_interval_minutes} minutes.")
+            logger.info(f"Pianificato controllo automatico ogni {config.check_interval_minutes} minuti.")
 
         self.app = app
         return app
 
     async def error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Log the error that occurred during an update."""
-        logger.error("Exception occurred while handling an update:", exc_info=context.error)
+        """Logga eventuali eccezioni non gestite."""
+        logger.error("Errore imprevisto durante la gestione di un aggiornamento:", exc_info=context.error)
 
-    # --- Command Handlers ---
+    # --- Comandi Utente ---
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /start command."""
+        """Gestisce il comando /start."""
         user = update.effective_user
         chat_id = update.effective_chat.id
 
+        is_new = not await self.db.is_subscribed(chat_id)
         await self.db.add_subscriber(
             chat_id=chat_id,
             username=user.username if user else None,
             first_name=user.first_name if user else None,
         )
 
+        user_tag = f"@{user.username}" if (user and user.username) else f"ID:{chat_id}"
+        if is_new:
+            logger.info(f"[NUOVO UTENTE] {user_tag} ({user.first_name if user else 'N/A'}) ha avviato il bot.")
+        else:
+            logger.info(f"[UTENTE COLLEGATO] {user_tag} ({user.first_name if user else 'N/A'}) ha riavviato /start.")
+
         welcome_text = (
-            f"👋 <b>Welcome, {user.first_name if user else 'Gamer'}!</b>\n\n"
-            "🎮 <b>Free PC Games Deal Bot</b> is active.\n"
-            "I monitor Epic Games, Steam, GOG, Ubisoft, EA, and more for 100% free PC game giveaways.\n\n"
-            "✨ <b>Features:</b>\n"
-            "• High-resolution cover art (via SteamGridDB)\n"
-            "• Original stock price & discount value\n"
-            "• Full metadata (Release year, single/multiplayer, genres)\n"
-            "• 1-click claim button directly to the store\n"
-            "• Customizable store filters (/settings)\n"
-            "• Automatic alerts for newly dropped free games\n\n"
-            "📌 <b>Available Commands:</b>\n"
-            "/free - View all current free PC games\n"
-            "/settings - Choose which stores you want to receive deals from\n"
-            "/epic - View Epic Games free & upcoming giveaways\n"
-            "/steam - View Steam free promotions\n"
-            "/check - Check for newly released giveaways\n"
-            "/subscribe - Enable automatic deal notifications\n"
-            "/unsubscribe - Disable deal notifications\n"
-            "/help - Show command guide"
+            f"👋 <b>Benvenuto, {user.first_name if user else 'Gamer'}!</b>\n\n"
+            "🎮 <b>Free Games Bot</b> è attivo e pronto a segnalarti tutti i giochi gratuiti e le migliori offerte per PC!\n\n"
+            "✨ <b>Caratteristiche:</b>\n"
+            "• Locandine ad alta risoluzione (da SteamGridDB e store)\n"
+            "• Prezzi e sconti ufficiali in <b>Euro (€)</b>\n"
+            "• Dati completi (Anno di uscita, generi, modalità singolo/multiplayer)\n"
+            "• Link diretti alle pagine degli store in lingua italiana\n"
+            "• Filtri avanzati per <b>Store</b>, <b>Categorie</b> e <b>Prezzi</b> (/settings)\n"
+            "• Avvisi automatici sui nuovi drop di giochi gratuiti\n\n"
+            "📌 <b>Comandi principali:</b>\n"
+            "/free - Mostra tutti i giochi gratis attivi\n"
+            "/settings - Configura store, generi e soglie di prezzo\n"
+            "/epic - Mostra giochi attivi e anticipazioni di Epic Games\n"
+            "/steam - Mostra promozioni e giveaway Steam\n"
+            "/check - Controlla nuovi arrivi non ancora ricevuti\n"
+            "/help - Mostra la guida completa dei comandi"
         )
         await update.message.reply_text(welcome_text, parse_mode=ParseMode.HTML)
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /help command."""
+        """Gestisce il comando /help."""
+        user = update.effective_user
+        logger.info(f"[COMANDO /help] Utente: @{user.username if user else 'N/A'} ({update.effective_chat.id})")
+
         help_text = (
-            "🛠 <b>Free Games Bot Commands:</b>\n\n"
-            "/free or /deals - Fetch all active free game giveaways across your enabled stores\n"
-            "/settings - Toggle which stores you want to receive alerts from\n"
-            "/epic - View active & upcoming free games on Epic Games Store\n"
-            "/steam - View free game deals on Steam\n"
-            "/check - Scan for new deals not yet sent to you\n"
-            "/subscribe - Turn on automatic background alerts\n"
-            "/unsubscribe - Stop automated alerts\n"
-            "/help - View command instructions\n\n"
-            "💡 <i>Tip: Tap the 'Claim' button under any deal to open its official store page.</i>"
+            "🛠 <b>Guida ai comandi di Free Games Bot:</b>\n\n"
+            "/free (o /deals) - Mostra tutti i giochi gratuiti disponibili secondo i tuoi filtri\n"
+            "/settings - Apri il pannello filtri (Store, Categorie, Prezzi)\n"
+            "/minprice [euro] - Imposta il valore minimo del gioco (es. <code>/minprice 10</code> o <code>/minprice 0</code> per disattivare)\n"
+            "/maxprice [euro] - Imposta il prezzo max per offerte a pagamento (es. <code>/maxprice 5</code> o <code>/maxprice 0</code> solo gratis)\n"
+            "/epic - Visualizza le offerte attive e future di Epic Games Store\n"
+            "/steam - Visualizza i giochi gratis e promozioni su Steam\n"
+            "/check - Cerca subito nuovi giochi non ancora ricevuti\n"
+            "/subscribe - Attiva le notifiche automatiche periodiche\n"
+            "/unsubscribe - Disattiva le notifiche automatiche\n"
+            "/help - Mostra questo messaggio di aiuto\n\n"
+            "💡 <i>Tocca il pulsante sotto a ciascuna scheda per riscattare subito il gioco nello store italiano.</i>"
         )
         await update.message.reply_text(help_text, parse_mode=ParseMode.HTML)
 
     async def settings_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /settings command: show interactive store preference buttons."""
+        """Gestisce il comando /settings: apre il menu principale delle impostazioni."""
+        user = update.effective_user
         chat_id = update.effective_chat.id
-        enabled_stores = await self.db.get_user_stores(chat_id)
-        text = format_settings_message(enabled_stores)
-        keyboard = build_settings_keyboard(enabled_stores)
+        logger.info(f"[COMANDO /settings] Utente: @{user.username if user else 'N/A'} ({chat_id})")
+
+        stores = await self.db.get_user_stores(chat_id)
+        categories = await self.db.get_user_categories(chat_id)
+        min_stock, max_sale = await self.db.get_user_prices(chat_id)
+
+        text = format_main_settings_message(len(stores), len(categories), min_stock, max_sale)
+        keyboard = build_main_settings_keyboard()
         await update.message.reply_text(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
-    async def settings_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle callback queries from the /settings store toggle buttons."""
-        query = update.callback_query
-        await query.answer()
+    async def minprice_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Imposta rapidamente la soglia di listino minimo via comando."""
+        chat_id = update.effective_chat.id
+        user = update.effective_user
 
+        if not context.args:
+            min_stock, _ = await self.db.get_user_prices(chat_id)
+            current_str = f"{min_stock:.2f}".replace(".", ",") + " €" if min_stock > 0 else "Nessun limite (0,00 €)"
+            await update.message.reply_text(
+                f"💰 <b>Listino minimo attuale:</b> {current_str}\n\n"
+                "Usa <code>/minprice [importo]</code> per cambiarlo (es. <code>/minprice 10</code>) o <code>/minprice 0</code> per azzerare.",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        arg = context.args[0]
+        val = extract_price_float(arg)
+        new_val = await self.db.set_user_min_stock_price(chat_id, val)
+        logger.info(f"[IMPOSTAZIONI /minprice] Utente: @{user.username if user else 'N/A'} ({chat_id}) ha impostato min_stock a {new_val}€")
+
+        if new_val <= 0:
+            await update.message.reply_text("✅ <b>Filtro listino minimo disattivato.</b> Riceverai giochi con qualsiasi valore originale.", parse_mode=ParseMode.HTML)
+        else:
+            formatted = f"{new_val:.2f}".replace(".", ",") + " €"
+            await update.message.reply_text(f"✅ <b>Listino minimo impostato a {formatted}.</b> Riceverai solo giochi con valore originale pari o superiore.", parse_mode=ParseMode.HTML)
+
+    async def maxprice_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Imposta rapidamente la soglia massima per offerte scontate via comando."""
+        chat_id = update.effective_chat.id
+        user = update.effective_user
+
+        if not context.args:
+            _, max_sale = await self.db.get_user_prices(chat_id)
+            current_str = f"≤ {max_sale:.2f}".replace(".", ",") + " €" if max_sale > 0 else "Solo 100% GRATIS (0,00 €)"
+            await update.message.reply_text(
+                f"💰 <b>Prezzo max offerta attuale:</b> {current_str}\n\n"
+                "Usa <code>/maxprice [importo]</code> per cambiarlo (es. <code>/maxprice 5</code>) o <code>/maxprice 0</code> per soli giochi gratuiti.",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        arg = context.args[0]
+        val = extract_price_float(arg)
+        new_val = await self.db.set_user_max_sale_price(chat_id, val)
+        logger.info(f"[IMPOSTAZIONI /maxprice] Utente: @{user.username if user else 'N/A'} ({chat_id}) ha impostato max_sale a {new_val}€")
+
+        if new_val <= 0:
+            await update.message.reply_text("✅ <b>Filtro offerte impostato su SOLO GRATIS (0,00 €).</b>", parse_mode=ParseMode.HTML)
+        else:
+            formatted = f"{new_val:.2f}".replace(".", ",") + " €"
+            await update.message.reply_text(f"✅ <b>Filtro offerte impostato su ≤ {formatted}.</b> Riceverai sia giochi gratis sia sconti sotto questa soglia.", parse_mode=ParseMode.HTML)
+
+    # --- Gestione Callback Impostazioni ---
+
+    async def settings_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Gestisce tutti i pulsanti interattivi del menu /settings."""
+        query = update.callback_query
         chat_id = query.message.chat.id
+        user = query.from_user
         data = query.data
 
-        if data.startswith("toggle:"):
-            store = data.split(":", 1)[1]
-            enabled_stores = await self.db.toggle_user_store(chat_id, store)
-        elif data == "preset:all":
-            enabled_stores = await self.db.set_user_stores(chat_id, set(ALL_STORES))
-        elif data == "preset:none":
-            enabled_stores = await self.db.set_user_stores(chat_id, set())
-        else:
+        if data == "noop":
+            await query.answer()
             return
 
-        new_text = format_settings_message(enabled_stores)
-        new_keyboard = build_settings_keyboard(enabled_stores)
+        logger.info(f"[CALLBACK] Utente: @{user.username if user else 'N/A'} ({chat_id}) ha premuto: {data}")
+        await query.answer()
 
-        try:
-            await query.edit_message_text(text=new_text, reply_markup=new_keyboard, parse_mode=ParseMode.HTML)
-        except Exception:
-            pass  # Message content unchanged
+        # 1. Navigazione tra sezioni
+        if data == "nav:main":
+            stores = await self.db.get_user_stores(chat_id)
+            categories = await self.db.get_user_categories(chat_id)
+            min_stock, max_sale = await self.db.get_user_prices(chat_id)
+            await query.edit_message_text(
+                text=format_main_settings_message(len(stores), len(categories), min_stock, max_sale),
+                reply_markup=build_main_settings_keyboard(),
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        if data == "nav:stores":
+            stores = await self.db.get_user_stores(chat_id)
+            await query.edit_message_text(
+                text=format_stores_settings_message(stores),
+                reply_markup=build_stores_keyboard(stores),
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        if data == "nav:categories":
+            categories = await self.db.get_user_categories(chat_id)
+            await query.edit_message_text(
+                text=format_categories_settings_message(categories),
+                reply_markup=build_categories_keyboard(categories),
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        if data == "nav:prices":
+            min_stock, max_sale = await self.db.get_user_prices(chat_id)
+            await query.edit_message_text(
+                text=format_prices_settings_message(min_stock, max_sale),
+                reply_markup=build_prices_keyboard(min_stock, max_sale),
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        if data == "nav:close":
+            await query.message.delete()
+            return
+
+        # 2. Toggle Store
+        if data.startswith("toggle_store:"):
+            store = data.split(":", 1)[1]
+            stores = await self.db.toggle_user_store(chat_id, store)
+            await query.edit_message_text(
+                text=format_stores_settings_message(stores),
+                reply_markup=build_stores_keyboard(stores),
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        if data == "preset_store:all":
+            stores = await self.db.set_user_stores(chat_id, set(ALL_STORES))
+            await query.edit_message_text(
+                text=format_stores_settings_message(stores),
+                reply_markup=build_stores_keyboard(stores),
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        if data == "preset_store:none":
+            stores = await self.db.set_user_stores(chat_id, set())
+            await query.edit_message_text(
+                text=format_stores_settings_message(stores),
+                reply_markup=build_stores_keyboard(stores),
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        # 3. Toggle Categorie
+        if data.startswith("toggle_cat:"):
+            cat = data.split(":", 1)[1]
+            categories = await self.db.toggle_user_category(chat_id, cat)
+            await query.edit_message_text(
+                text=format_categories_settings_message(categories),
+                reply_markup=build_categories_keyboard(categories),
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        if data == "preset_cat:all":
+            categories = await self.db.set_user_categories(chat_id, set(ALL_CATEGORIES))
+            await query.edit_message_text(
+                text=format_categories_settings_message(categories),
+                reply_markup=build_categories_keyboard(categories),
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        if data == "preset_cat:none":
+            categories = await self.db.set_user_categories(chat_id, set())
+            await query.edit_message_text(
+                text=format_categories_settings_message(categories),
+                reply_markup=build_categories_keyboard(categories),
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        # 4. Impostazioni Prezzi
+        if data.startswith("set_min:"):
+            val = float(data.split(":", 1)[1])
+            await self.db.set_user_min_stock_price(chat_id, val)
+            min_stock, max_sale = await self.db.get_user_prices(chat_id)
+            await query.edit_message_text(
+                text=format_prices_settings_message(min_stock, max_sale),
+                reply_markup=build_prices_keyboard(min_stock, max_sale),
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        if data.startswith("set_max:"):
+            val = float(data.split(":", 1)[1])
+            await self.db.set_user_max_sale_price(chat_id, val)
+            min_stock, max_sale = await self.db.get_user_prices(chat_id)
+            await query.edit_message_text(
+                text=format_prices_settings_message(min_stock, max_sale),
+                reply_markup=build_prices_keyboard(min_stock, max_sale),
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        if data == "reset_prices":
+            await self.db.reset_user_prices(chat_id)
+            await query.edit_message_text(
+                text=format_prices_settings_message(0.0, 0.0),
+                reply_markup=build_prices_keyboard(0.0, 0.0),
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+    # --- Comandi Ricerca & Offerte con Filtri ---
 
     async def free_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /free or /deals command."""
+        """Gestisce /free o /deals: applica filtri di store, categorie e prezzi dell'utente."""
         chat_id = update.effective_chat.id
-        status_msg = await update.message.reply_text("🔍 <i>Searching PC game stores for active free games...</i>", parse_mode=ParseMode.HTML)
+        user = update.effective_user
+        logger.info(f"[COMANDO /free] Utente: @{user.username if user else 'N/A'} ({chat_id})")
 
-        all_deals = await self.deal_manager.get_active_deals()
-        user_stores = await self.db.get_user_stores(chat_id)
+        status_msg = await update.message.reply_text("🔍 <i>Ricerca offerte e giochi gratis in corso...</i>", parse_mode=ParseMode.HTML)
 
-        # Filter by user's enabled stores
-        deals = [
-            deal for deal in all_deals
-            if await self.db.is_deal_allowed_for_user(chat_id, deal.store)
-        ]
+        min_stock, max_sale = await self.db.get_user_prices(chat_id)
+        all_deals = await self.deal_manager.fetch_all_deals(
+            max_sale_price=max_sale,
+            min_stock_price=min_stock,
+        )
 
-        if not deals:
-            if not user_stores:
-                await status_msg.edit_text("⚠️ You have disabled all stores in /settings! Please enable at least one store to view deals.")
-            else:
-                await status_msg.edit_text("ℹ️ No active free games found for your selected stores right now. Use /settings to enable more stores!")
+        active_deals = [d for d in all_deals if not d.is_upcoming]
+
+        # Filtra per store, categoria e prezzo dell'utente
+        filtered_deals = []
+        for d in active_deals:
+            if not await self.db.is_deal_allowed_for_user(chat_id, d.store):
+                continue
+            if not await self.db.is_deal_category_allowed(chat_id, d.genres):
+                continue
+            if not await self.db.is_deal_price_allowed(chat_id, d.stock_price_value, d.sale_price_value):
+                continue
+            filtered_deals.append(d)
+
+        if not filtered_deals:
+            await status_msg.edit_text(
+                "ℹ️ Nessun gioco trovato che corrisponda ai tuoi filtri attuali!\n"
+                "Usa /settings per abilitare altri store, categorie o modificare le soglie di prezzo."
+            )
             return
 
-        await status_msg.edit_text(f"🎁 Found <b>{len(deals)}</b> free game deals for your stores! Sending them now...", parse_mode=ParseMode.HTML)
+        await status_msg.edit_text(f"🎁 Trovate <b>{len(filtered_deals)}</b> offerte corrispondenti! Invio in corso...", parse_mode=ParseMode.HTML)
 
-        for deal in deals:
+        for deal in filtered_deals:
             await send_deal_message(context.bot, chat_id, deal)
             await self.db.mark_deal_sent(deal.id, chat_id, deal.title, deal.store)
 
     async def epic_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /epic command."""
+        """Gestisce /epic."""
+        user = update.effective_user
         chat_id = update.effective_chat.id
-        status_msg = await update.message.reply_text("🔍 <i>Fetching Epic Games Store giveaways...</i>", parse_mode=ParseMode.HTML)
+        logger.info(f"[COMANDO /epic] Utente: @{user.username if user else 'N/A'} ({chat_id})")
 
+        status_msg = await update.message.reply_text("🔍 <i>Recupero promozioni di Epic Games Store...</i>", parse_mode=ParseMode.HTML)
         deals = await self.deal_manager.get_epic_deals()
 
         if not deals:
-            await status_msg.edit_text("ℹ️ No Epic Games giveaways found at this time.")
+            await status_msg.edit_text("ℹ️ Nessuna promozione attiva trovata su Epic Games al momento.")
             return
 
-        await status_msg.edit_text(f"🎁 Found <b>{len(deals)}</b> Epic Games promotion(s):", parse_mode=ParseMode.HTML)
-
+        await status_msg.edit_text(f"🎁 Trovate <b>{len(deals)}</b> promozioni Epic Games (attive & future):", parse_mode=ParseMode.HTML)
         for deal in deals:
             await send_deal_message(context.bot, chat_id, deal)
             await self.db.mark_deal_sent(deal.id, chat_id, deal.title, deal.store)
 
     async def steam_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /steam command."""
+        """Gestisce /steam."""
+        user = update.effective_user
         chat_id = update.effective_chat.id
-        status_msg = await update.message.reply_text("🔍 <i>Fetching Steam giveaways...</i>", parse_mode=ParseMode.HTML)
+        logger.info(f"[COMANDO /steam] Utente: @{user.username if user else 'N/A'} ({chat_id})")
 
+        status_msg = await update.message.reply_text("🔍 <i>Recupero promozioni Steam...</i>", parse_mode=ParseMode.HTML)
         deals = await self.deal_manager.get_steam_deals()
 
         if not deals:
-            await status_msg.edit_text("ℹ️ No 100% free Steam game deals found right now.")
+            await status_msg.edit_text("ℹ️ Nessuna promozione al 100% trovata su Steam in questo momento.")
             return
 
-        await status_msg.edit_text(f"🎁 Found <b>{len(deals)}</b> Steam promotion(s):", parse_mode=ParseMode.HTML)
-
+        await status_msg.edit_text(f"🎁 Trovate <b>{len(deals)}</b> promozioni Steam:", parse_mode=ParseMode.HTML)
         for deal in deals:
             await send_deal_message(context.bot, chat_id, deal)
             await self.db.mark_deal_sent(deal.id, chat_id, deal.title, deal.store)
 
     async def check_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /check command: check for deals not yet received by the user."""
+        """Gestisce /check: scansiona i deal non ancora inviati all'utente applicando tutti i filtri."""
+        user = update.effective_user
         chat_id = update.effective_chat.id
-        status_msg = await update.message.reply_text("🔄 <i>Checking for newly released deals...</i>", parse_mode=ParseMode.HTML)
+        logger.info(f"[COMANDO /check] Utente: @{user.username if user else 'N/A'} ({chat_id})")
 
+        status_msg = await update.message.reply_text("🔄 <i>Controllo nuovi arrivi non ancora ricevuti...</i>", parse_mode=ParseMode.HTML)
+
+        min_stock, max_sale = await self.db.get_user_prices(chat_id)
         sent_deal_ids = await self.db.get_sent_deal_ids_for_chat(chat_id)
-        all_new_deals = await self.deal_manager.get_new_deals(sent_deal_ids)
+        all_new_deals = await self.deal_manager.get_new_deals(sent_deal_ids, max_sale_price=max_sale, min_stock_price=min_stock)
 
-        # Filter by user's enabled stores
-        new_deals = [
-            deal for deal in all_new_deals
-            if await self.db.is_deal_allowed_for_user(chat_id, deal.store)
-        ]
+        filtered_deals = []
+        for d in all_new_deals:
+            if not await self.db.is_deal_allowed_for_user(chat_id, d.store):
+                continue
+            if not await self.db.is_deal_category_allowed(chat_id, d.genres):
+                continue
+            if not await self.db.is_deal_price_allowed(chat_id, d.stock_price_value, d.sale_price_value):
+                continue
+            filtered_deals.append(d)
 
-        if not new_deals:
-            await status_msg.edit_text("✅ You are all caught up! No new free games matching your store preferences.")
+        if not filtered_deals:
+            await status_msg.edit_text("✅ Nessun nuovo gioco rispetto al tuo ultimo controllo! Sei aggiornato.")
             return
 
-        await status_msg.edit_text(f"🎉 Found <b>{len(new_deals)}</b> new free game(s) for you!", parse_mode=ParseMode.HTML)
-
-        for deal in new_deals:
+        await status_msg.edit_text(f"🎉 Trovati <b>{len(filtered_deals)}</b> nuovi giochi per te!", parse_mode=ParseMode.HTML)
+        for deal in filtered_deals:
             await send_deal_message(context.bot, chat_id, deal)
             await self.db.mark_deal_sent(deal.id, chat_id, deal.title, deal.store)
 
     async def subscribe_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /subscribe command."""
+        """Gestisce /subscribe."""
         user = update.effective_user
         chat_id = update.effective_chat.id
+        logger.info(f"[COMANDO /subscribe] Utente: @{user.username if user else 'N/A'} ({chat_id})")
+
         await self.db.add_subscriber(
             chat_id=chat_id,
             username=user.username if user else None,
             first_name=user.first_name if user else None,
         )
         await update.message.reply_text(
-            "🔔 <b>Subscribed!</b> You will automatically receive alerts whenever a new free game is available.\n"
-            "Use /settings to choose your preferred stores!",
+            "🔔 <b>Notifiche attive!</b> Riceverai avvisi automatici quando un nuovo gioco gratuito è disponibile.\n"
+            "Puoi personalizzare store, categorie e prezzi con /settings.",
             parse_mode=ParseMode.HTML,
         )
 
     async def unsubscribe_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /unsubscribe command."""
+        """Gestisce /unsubscribe."""
+        user = update.effective_user
         chat_id = update.effective_chat.id
+        logger.info(f"[COMANDO /unsubscribe] Utente: @{user.username if user else 'N/A'} ({chat_id})")
+
         await self.db.remove_subscriber(chat_id)
         await update.message.reply_text(
-            "🔕 <b>Unsubscribed.</b> You will no longer receive automated alerts. You can still use /free anytime!",
+            "🔕 <b>Notifiche disattivate.</b> Non riceverai più notifiche automatiche. Potrai comunque consultare /free quando vuoi!",
             parse_mode=ParseMode.HTML,
         )
 
-    # --- Background Periodic Job ---
+    # --- Job Periodico in Background ---
 
     async def periodic_check_job(self, context: ContextTypes.DEFAULT_TYPE):
-        """Background job to check for new deals and notify active subscribers according to their store preferences."""
-        logger.info("Running periodic free games check...")
+        """Controllo periodico in background con invio deal personalizzato per ogni utente."""
+        logger.info("[BACKGROUND] Avvio controllo periodico offerte e giochi gratis...")
         try:
             subscribers = await self.db.get_active_subscribers()
             if not subscribers:
-                logger.info("No active subscribers to notify.")
+                logger.info("[BACKGROUND] Nessun utente attivo iscritto alle notifiche.")
                 return
 
             all_deals = await self.deal_manager.fetch_all_deals(force_refresh=True)
@@ -315,16 +540,19 @@ class FreeGamesBot:
                 sent_ids = await self.db.get_sent_deal_ids_for_chat(chat_id)
                 for deal in active_deals:
                     if deal.id not in sent_ids:
-                        # Check store preference
                         if not await self.db.is_deal_allowed_for_user(chat_id, deal.store):
                             continue
+                        if not await self.db.is_deal_category_allowed(chat_id, deal.genres):
+                            continue
+                        if not await self.db.is_deal_price_allowed(chat_id, deal.stock_price_value, deal.sale_price_value):
+                            continue
 
-                        logger.info(f"Broadcasting new deal '{deal.title}' ({deal.store}) to chat {chat_id}")
+                        logger.info(f"[NOTIFICA DEAL] Invio '{deal.title}' ({deal.store}, {deal.stock_price}) a chat {chat_id}")
                         try:
                             await send_deal_message(context.bot, chat_id, deal)
                             await self.db.mark_deal_sent(deal.id, chat_id, deal.title, deal.store)
                         except Exception as e:
-                            logger.error(f"Failed to send deal to subscriber {chat_id}: {e}")
+                            logger.error(f"Errore durante l'invio del deal a {chat_id}: {e}")
 
         except Exception as e:
-            logger.error(f"Error during periodic check job: {e}", exc_info=True)
+            logger.error(f"Errore durante il controllo periodico: {e}", exc_info=True)

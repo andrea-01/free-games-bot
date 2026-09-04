@@ -8,12 +8,12 @@ logger = logging.getLogger(__name__)
 
 EPIC_PROMOTIONS_URL = (
     "https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions"
-    "?locale=en-US&country=US&allowCountries=US"
+    "?locale=it&country=IT&allowCountries=IT"
 )
 
 class EpicGamesFetcher(BaseFetcher):
     async def fetch_deals(self, include_upcoming: bool = True) -> List[GameDeal]:
-        """Fetch current and upcoming free games from Epic Games Store."""
+        """Fetch current and upcoming free games from Epic Games Store in Italian."""
         data = await self.fetch_json(EPIC_PROMOTIONS_URL)
         if not data:
             logger.warning("Failed to fetch Epic Games promotions data.")
@@ -33,12 +33,12 @@ class EpicGamesFetcher(BaseFetcher):
             if not title:
                 continue
 
-            # Original stock price
+            # Original stock price in EUR
             price_info = item.get("price", {}).get("totalPrice", {})
             fmt_price = price_info.get("fmtPrice", {})
-            original_price = fmt_price.get("originalPrice") or "$0.00"
-            if original_price in ("0", "$0", "$0.00", "Free"):
-                original_price = "Free on Epic"
+            original_price = fmt_price.get("originalPrice") or "Gratis"
+            if original_price in ("0", "$0", "$0.00", "0,00 €", "0.00 €", "Free"):
+                original_price = "Gratis"
 
             # Image resolution
             key_images = item.get("keyImages", [])
@@ -55,7 +55,7 @@ class EpicGamesFetcher(BaseFetcher):
             if not cover_url and key_images:
                 cover_url = key_images[0].get("url")
 
-            # Store URL slug resolution
+            # Store URL slug resolution (Italian store page)
             slug = item.get("productSlug") or item.get("urlSlug")
             mappings = item.get("catalogNs", {}).get("mappings", [])
             for mapping in mappings:
@@ -63,7 +63,7 @@ class EpicGamesFetcher(BaseFetcher):
                     slug = mapping["pageSlug"]
                     break
 
-            store_url = f"https://store.epicgames.com/en-US/p/{slug}" if slug else "https://store.epicgames.com/en-US/free-games"
+            store_url = f"https://store.epicgames.com/it/p/{slug}" if slug else "https://store.epicgames.com/it/free-games"
             description = item.get("description", "").strip()
 
             promotions = item.get("promotions") or {}

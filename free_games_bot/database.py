@@ -1,10 +1,11 @@
-"""Database management for subscribers, store preferences, and sent deals."""
+"""Database management for subscribers, preferences (stores, categories, prices), and sent deals."""
 import json
 import logging
 import aiosqlite
 from pathlib import Path
-from typing import List, Set, Optional
+from typing import List, Set, Tuple, Optional
 from free_games_bot.config import config
+from free_games_bot.models import extract_price_float
 
 logger = logging.getLogger(__name__)
 
@@ -15,11 +16,24 @@ ALL_STORES = [
     "Ubisoft",
     "EA / Origin",
     "Itch.io",
-    "Other / DRM-Free",
+    "Altro / DRM-Free",
+]
+
+ALL_CATEGORIES = [
+    "Azione",
+    "Avventura",
+    "GDR / RPG",
+    "Strategia",
+    "Sparatutto",
+    "Puzzle",
+    "Simulazione",
+    "Indie",
+    "Horror",
+    "Altro",
 ]
 
 def normalize_deal_store(deal_store: str) -> str:
-    """Map any deal store string to one of the canonical ALL_STORES options."""
+    """Map any store string to canonical ALL_STORES options."""
     s = deal_store.lower()
     if "epic" in s:
         return "Epic Games"
@@ -33,7 +47,30 @@ def normalize_deal_store(deal_store: str) -> str:
         return "EA / Origin"
     if "itch" in s:
         return "Itch.io"
-    return "Other / DRM-Free"
+    return "Altro / DRM-Free"
+
+def normalize_deal_category(genre: str) -> str:
+    """Map an arbitrary genre/category string to one of ALL_CATEGORIES."""
+    g = genre.lower()
+    if "sparatutto" in g or "shooter" in g or "fps" in g:
+        return "Sparatutto"
+    if "rpg" in g or "ruolo" in g or "gdr" in g:
+        return "GDR / RPG"
+    if "azione" in g or "action" in g:
+        return "Azione"
+    if "avventura" in g or "adventure" in g:
+        return "Avventura"
+    if "strategia" in g or "strategy" in g or "rts" in g:
+        return "Strategia"
+    if "puzzle" in g or "rompicapo" in g or "enigmi" in g:
+        return "Puzzle"
+    if "simulazione" in g or "simulation" in g or "sim" in g:
+        return "Simulazione"
+    if "horror" in g or "sopravvivenza" in g or "survival" in g:
+        return "Horror"
+    if "indie" in g:
+        return "Indie"
+    return "Altro"
 
 class Database:
     def __init__(self, db_path: str = None):
@@ -50,6 +87,9 @@ class Database:
                     first_name TEXT,
                     is_active INTEGER DEFAULT 1,
                     enabled_stores TEXT,
+                    enabled_categories TEXT,
+                    min_stock_price REAL DEFAULT 0.0,
+                    max_sale_price REAL DEFAULT 0.0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
@@ -65,11 +105,18 @@ class Database:
                 );
             """)
 
-            # Migration: add enabled_stores column if upgrading an existing db
-            try:
-                await db.execute("ALTER TABLE subscribers ADD COLUMN enabled_stores TEXT;")
-            except Exception:
-                pass  # Column already exists
+            # Migrations for existing databases
+            columns_to_add = [
+                ("enabled_stores", "TEXT"),
+                ("enabled_categories", "TEXT"),
+                ("min_stock_price", "REAL DEFAULT 0.0"),
+                ("max_sale_price", "REAL DEFAULT 0.0"),
+            ]
+            for col_name, col_type in columns_to_add:
+                try:
+                    await db.execute(f"ALTER TABLE subscribers ADD COLUMN {col_name} {col_type};")
+                except Exception:
+                    pass  # Column already exists
 
             await db.commit()
 
@@ -110,6 +157,8 @@ class Database:
                 rows = await cursor.fetchall()
                 return [row[0] for row in rows]
 
+    # --- Store Preferences ---
+
     async def get_user_stores(self, chat_id: int) -> Set[str]:
         """Get enabled stores for a user. Defaults to ALL_STORES if none configured."""
         async with aiosqlite.connect(self.db_path) as db:
@@ -130,13 +179,7 @@ class Database:
             current_stores.remove(store)
         else:
             current_stores.add(store)
-
-        async with aiosqlite.connect(self.db_path) as db:
-            await db.execute("""
-                UPDATE subscribers SET enabled_stores = ? WHERE chat_id = ?;
-            """, (json.dumps(list(current_stores)), chat_id))
-            await db.commit()
-
+        await self.set_user_stores(chat_id, current_stores)
         return current_stores
 
     async def set_user_stores(self, chat_id: int, stores: Set[str]) -> Set[str]:
@@ -153,6 +196,111 @@ class Database:
         user_stores = await self.get_user_stores(chat_id)
         canonical = normalize_deal_store(deal_store)
         return canonical in user_stores
+
+    # --- Category Preferences ---
+
+    async def get_user_categories(self, chat_id: int) -> Set[str]:
+        """Get enabled categories for a user. Defaults to ALL_CATEGORIES."""
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute("SELECT enabled_categories FROM subscribers WHERE chat_id = ?;", (chat_id,)) as cursor:
+                row = await cursor.fetchone()
+                if row and row[0]:
+                    try:
+                        categories = json.loads(row[0])
+                        return set(categories)
+                    except Exception:
+                        pass
+        return set(ALL_CATEGORIES)
+
+    async def toggle_user_category(self, chat_id: int, category: str) -> Set[str]:
+        """Toggle a specific category on/off for a user."""
+        current = await self.get_user_categories(chat_id)
+        if category in current:
+            current.remove(category)
+        else:
+            current.add(category)
+        await self.set_user_categories(chat_id, current)
+        return current
+
+    async def set_user_categories(self, chat_id: int, categories: Set[str]) -> Set[str]:
+        """Set enabled categories directly."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("""
+                UPDATE subscribers SET enabled_categories = ? WHERE chat_id = ?;
+            """, (json.dumps(list(categories)), chat_id))
+            await db.commit()
+        return categories
+
+    async def is_deal_category_allowed(self, chat_id: int, deal_genres: List[str]) -> bool:
+        """Check if deal matches the user's enabled categories."""
+        user_categories = await self.get_user_categories(chat_id)
+        if not deal_genres:
+            return "Altro" in user_categories
+
+        # If any of the deal's genres map to an enabled user category
+        for g in deal_genres:
+            cat = normalize_deal_category(g)
+            if cat in user_categories:
+                return True
+        return False
+
+    # --- Price Filter Preferences ---
+
+    async def get_user_prices(self, chat_id: int) -> Tuple[float, float]:
+        """Get (min_stock_price, max_sale_price) for a user."""
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                "SELECT min_stock_price, max_sale_price FROM subscribers WHERE chat_id = ?;", (chat_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    min_stock = float(row[0] or 0.0)
+                    max_sale = float(row[1] or 0.0)
+                    return min_stock, max_sale
+        return 0.0, 0.0
+
+    async def set_user_min_stock_price(self, chat_id: int, min_price: float) -> float:
+        """Set minimum stock price threshold (0 means no limit)."""
+        val = max(0.0, round(min_price, 2))
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("UPDATE subscribers SET min_stock_price = ? WHERE chat_id = ?;", (val, chat_id))
+            await db.commit()
+        return val
+
+    async def set_user_max_sale_price(self, chat_id: int, max_price: float) -> float:
+        """Set maximum discounted sale price threshold (0 means free only)."""
+        val = max(0.0, round(max_price, 2))
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("UPDATE subscribers SET max_sale_price = ? WHERE chat_id = ?;", (val, chat_id))
+            await db.commit()
+        return val
+
+    async def reset_user_prices(self, chat_id: int):
+        """Reset both price filters to 0 (all stock values, free only)."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("UPDATE subscribers SET min_stock_price = 0.0, max_sale_price = 0.0 WHERE chat_id = ?;", (chat_id,))
+            await db.commit()
+
+    async def is_deal_price_allowed(self, chat_id: int, stock_price_val: float, sale_price_val: float) -> bool:
+        """Check if deal satisfies both min stock price and max sale price filters."""
+        min_stock, max_sale = await self.get_user_prices(chat_id)
+
+        # 1. Min stock price filter: original retail price must be >= min_stock
+        if min_stock > 0 and stock_price_val < min_stock:
+            return False
+
+        # 2. Max sale price filter: sale price must be <= max_sale
+        if max_sale > 0:
+            if sale_price_val > max_sale:
+                return False
+        else:
+            # If max_sale == 0.0, deal must be completely free (sale_price <= 0.01)
+            if sale_price_val > 0.01:
+                return False
+
+        return True
+
+    # --- Sent Deals Tracking ---
 
     async def is_deal_sent(self, deal_id: str, chat_id: int) -> bool:
         """Check if a deal was already sent to this chat."""

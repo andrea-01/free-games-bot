@@ -1,4 +1,4 @@
-"""Deal Manager aggregating deals from multiple sources and enriching metadata."""
+"""Deal Manager aggregating deals from multiple sources, deduplicating, and enriching metadata."""
 import asyncio
 import logging
 import time
@@ -6,6 +6,7 @@ from typing import List, Optional, Set
 from free_games_bot.models import GameDeal
 from free_games_bot.fetchers.epic import EpicGamesFetcher
 from free_games_bot.fetchers.gamerpower import GamerPowerFetcher
+from free_games_bot.fetchers.cheapshark import CheapSharkFetcher
 from free_games_bot.fetchers.steam_enricher import SteamEnricher
 from free_games_bot.fetchers.steamgriddb import SteamGridDBClient
 
@@ -15,6 +16,7 @@ class DealManager:
     def __init__(self, cache_ttl_seconds: int = 300):
         self.epic_fetcher = EpicGamesFetcher()
         self.gamerpower_fetcher = GamerPowerFetcher()
+        self.cheapshark_fetcher = CheapSharkFetcher()
         self.steam_enricher = SteamEnricher()
         self.steamgriddb_client = SteamGridDBClient()
         self.cache_ttl = cache_ttl_seconds
@@ -23,33 +25,36 @@ class DealManager:
         self._last_fetch_time: float = 0.0
         self._lock = asyncio.Lock()
 
-    async def fetch_all_deals(self, force_refresh: bool = False) -> List[GameDeal]:
-        """Fetch, deduplicate, and enrich all current free game deals."""
+    async def fetch_all_deals(
+        self,
+        force_refresh: bool = False,
+        max_sale_price: float = 0.0,
+        min_stock_price: float = 0.0,
+    ) -> List[GameDeal]:
+        """Fetch, deduplicate, and enrich current free and discounted game deals."""
         async with self._lock:
             now = time.time()
-            if not force_refresh and self._cached_deals and (now - self._last_fetch_time < self.cache_ttl):
+            if not force_refresh and self._cached_deals and (now - self._last_fetch_time < self.cache_ttl) and max_sale_price <= 0:
                 return self._cached_deals
 
-            logger.info("Fetching fresh game deals from Epic Games and GamerPower...")
+            logger.info("Fetching game deals from Epic Games, GamerPower, and CheapShark...")
 
-            # Run fetchers concurrently
-            epic_task = self.epic_fetcher.fetch_deals(include_upcoming=True)
-            gamerpower_task = self.gamerpower_fetcher.fetch_deals()
+            tasks = [
+                self.epic_fetcher.fetch_deals(include_upcoming=True),
+                self.gamerpower_fetcher.fetch_deals(),
+            ]
 
-            epic_deals, gp_deals = await asyncio.gather(
-                epic_task, gamerpower_task, return_exceptions=True
-            )
+            if max_sale_price > 0:
+                tasks.append(self.cheapshark_fetcher.fetch_deals(upper_price=max_sale_price, min_stock_price=min_stock_price))
+
+            results = await asyncio.gather(*tasks, return_exceptions=True)
 
             all_raw_deals: List[GameDeal] = []
-            if isinstance(epic_deals, list):
-                all_raw_deals.extend(epic_deals)
-            else:
-                logger.error(f"Error fetching Epic deals: {epic_deals}")
-
-            if isinstance(gp_deals, list):
-                all_raw_deals.extend(gp_deals)
-            else:
-                logger.error(f"Error fetching GamerPower deals: {gp_deals}")
+            for res in results:
+                if isinstance(res, list):
+                    all_raw_deals.extend(res)
+                else:
+                    logger.error(f"Error in deal fetcher: {res}")
 
             # Deduplicate deals
             deduped = self._deduplicate_deals(all_raw_deals)
@@ -58,26 +63,33 @@ class DealManager:
             enrich_tasks = [self._enrich_deal(deal) for deal in deduped]
             enriched_deals = await asyncio.gather(*enrich_tasks)
 
-            self._cached_deals = list(enriched_deals)
-            self._last_fetch_time = now
-            return self._cached_deals
+            if max_sale_price <= 0:
+                self._cached_deals = list(enriched_deals)
+                self._last_fetch_time = now
+
+            return list(enriched_deals)
 
     def _deduplicate_deals(self, deals: List[GameDeal]) -> List[GameDeal]:
         """Deduplicate deals across sources by normalized title and store."""
         seen_keys = set()
         deduped: List[GameDeal] = []
 
-        # Give priority to direct Epic Games deals over GamerPower duplicates
-        sorted_deals = sorted(
-            deals,
-            key=lambda d: 0 if d.id.startswith("epic_") else 1
-        )
+        # Priority order: direct Epic Games first, then Steam, then CheapShark, then GamerPower
+        def priority(d: GameDeal) -> int:
+            if d.id.startswith("epic_"):
+                return 0
+            if "steam" in d.store.lower():
+                return 1
+            if d.id.startswith("cs_"):
+                return 2
+            return 3
+
+        sorted_deals = sorted(deals, key=priority)
 
         for deal in sorted_deals:
             norm_title = deal.clean_title().lower()
             key = (norm_title, deal.store.lower())
 
-            # Skip if we already have this title from this store
             if key in seen_keys:
                 continue
 
@@ -121,14 +133,14 @@ class DealManager:
         deals = await self.fetch_all_deals()
         return [d for d in deals if "steam" in d.store.lower()]
 
-    async def get_new_deals(self, sent_deal_ids: Set[str]) -> List[GameDeal]:
+    async def get_new_deals(self, sent_deal_ids: Set[str], max_sale_price: float = 0.0, min_stock_price: float = 0.0) -> List[GameDeal]:
         """Return active deals that haven't been sent yet."""
-        deals = await self.fetch_all_deals()
-        # Only broadcast active giveaways (not upcoming teasers)
+        deals = await self.fetch_all_deals(max_sale_price=max_sale_price, min_stock_price=min_stock_price)
         return [d for d in deals if not d.is_upcoming and d.id not in sent_deal_ids]
 
     async def close(self):
         await self.epic_fetcher.close()
         await self.gamerpower_fetcher.close()
+        await self.cheapshark_fetcher.close()
         await self.steam_enricher.close()
         await self.steamgriddb_client.close()

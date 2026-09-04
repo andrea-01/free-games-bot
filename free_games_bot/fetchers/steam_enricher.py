@@ -1,4 +1,4 @@
-"""Steam metadata enricher for release year, genres, player modes, and cover art."""
+"""Steam metadata enricher for release year, genres, player modes, and cover art in Italian."""
 import logging
 import re
 from typing import Dict, Any, Optional
@@ -16,23 +16,21 @@ class SteamEnricher(BaseFetcher):
         self._cache: Dict[str, Dict[str, Any]] = {}
 
     async def enrich_deal(self, deal: GameDeal) -> GameDeal:
-        """Enrich a deal with release year, genres, player modes, and high-res art from Steam."""
+        """Enrich a deal with release year, Italian genres, player modes, and high-res art from Steam."""
         clean_title = deal.clean_title()
         if clean_title in self._cache:
             data = self._cache[clean_title]
             return self._apply_data(deal, data)
 
         try:
-            # 1. Search Steam for the game title
-            search_params = {"term": clean_title, "l": "english", "cc": "US"}
+            # 1. Search Steam in Italian
+            search_params = {"term": clean_title, "l": "italian", "cc": "IT"}
             search_data = await self.fetch_json(STEAM_SEARCH_URL, params=search_params)
             if not search_data or not search_data.get("items"):
                 return deal
 
-            # Find matching item
             match_item = None
             for item in search_data["items"]:
-                # Simple loose title matching
                 item_name = item.get("name", "").lower()
                 clean_lower = clean_title.lower()
                 if clean_lower in item_name or item_name in clean_lower:
@@ -46,8 +44,8 @@ class SteamEnricher(BaseFetcher):
             if not app_id:
                 return deal
 
-            # 2. Fetch app details
-            app_params = {"appids": str(app_id), "l": "english"}
+            # 2. Fetch app details in Italian
+            app_params = {"appids": str(app_id), "l": "italian", "cc": "IT"}
             app_data = await self.fetch_json(STEAM_APPDETAILS_URL, params=app_params)
             if not app_data or str(app_id) not in app_data or not app_data[str(app_id)].get("success"):
                 return deal
@@ -59,23 +57,27 @@ class SteamEnricher(BaseFetcher):
             year_match = re.search(r"\b(19\d\d|20\d\d)\b", rel_date_str)
             release_year = year_match.group(1) if year_match else None
 
-            # Genres
+            # Genres in Italian
             genres = [g.get("description", "") for g in details.get("genres", []) if g.get("description")]
 
-            # Player modes (Single-player, Multi-player, Co-op, PvP, etc.)
+            # Player modes in Italian
             categories = [c.get("description", "") for c in details.get("categories", []) if c.get("description")]
             player_modes = []
             for cat in categories:
                 cat_lower = cat.lower()
-                if "single-player" in cat_lower and "Single-player" not in player_modes:
-                    player_modes.append("Single-player")
-                elif ("multi-player" in cat_lower or "multiplayer" in cat_lower or "online pvp" in cat_lower) and "Multi-player" not in player_modes:
-                    player_modes.append("Multi-player")
-                elif ("co-op" in cat_lower or "cooperative" in cat_lower) and "Co-op" not in player_modes:
+                if any(x in cat_lower for x in ["single-player", "singolo", "giocatore singolo"]) and "Giocatore singolo" not in player_modes:
+                    player_modes.append("Giocatore singolo")
+                elif any(x in cat_lower for x in ["multi-player", "multiplayer", "multigiocatore", "pvp"]) and "Multigiocatore" not in player_modes:
+                    player_modes.append("Multigiocatore")
+                elif any(x in cat_lower for x in ["co-op", "cooperativa"]) and "Co-op" not in player_modes:
                     player_modes.append("Co-op")
 
             header_image = details.get("header_image")
             short_desc = details.get("short_description")
+
+            # EUR price if available from Steam
+            price_overview = details.get("price_overview") or {}
+            eur_price = price_overview.get("initial_formatted") or price_overview.get("final_formatted")
 
             enriched_info = {
                 "steam_appid": app_id,
@@ -84,6 +86,7 @@ class SteamEnricher(BaseFetcher):
                 "player_modes": player_modes,
                 "header_image": header_image,
                 "short_desc": short_desc,
+                "eur_price": eur_price,
             }
 
             self._cache[clean_title] = enriched_info
@@ -108,8 +111,14 @@ class SteamEnricher(BaseFetcher):
 
         if not deal.steam_appid and data.get("steam_appid"):
             deal.steam_appid = data["steam_appid"]
+            # If Steam deal, set Italian Steam URL
+            if deal.store.lower() == "steam":
+                deal.store_url = f"https://store.steampowered.com/app/{deal.steam_appid}/?l=italian"
 
-        # If deal has no cover or generic image, use Steam's high-res header image
+        # If deal price is in USD ($) and Steam has EUR price, use EUR price
+        if ("$" in deal.stock_price or not deal.stock_price) and data.get("eur_price"):
+            deal.stock_price = data["eur_price"]
+
         if not deal.cover_url and data.get("header_image"):
             deal.cover_url = data["header_image"]
 
