@@ -103,6 +103,9 @@ class FreeGamesBot:
         # Callback per menu interattivo
         app.add_handler(CallbackQueryHandler(self.settings_callback))
 
+        # Fallback per comandi sconosciuti o testo semplice (in fondo per raccogliere tutto il non gestito)
+        app.add_handler(MessageHandler(filters.TEXT, self.unknown_message_handler))
+
         # Gestore globale degli errori
         app.add_error_handler(self.error_handler)
 
@@ -126,6 +129,38 @@ class FreeGamesBot:
             logger.warning(f"[RETE TELEGRAM] Timeout o connessione lenta temporanea: {context.error}")
             return
         logger.error("Errore imprevisto durante la gestione di un aggiornamento:", exc_info=context.error)
+
+    async def unknown_message_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Risponde ai comandi sconosciuti o ai messaggi di testo libero invitando ad usare i comandi preimpostati."""
+        msg = update.effective_message
+        if not msg or not msg.text:
+            return
+
+        user = update.effective_user
+        chat_id = update.effective_chat.id
+        text = msg.text.strip()
+
+        logger.info(f"[TESTO/COMANDO NON RICONOSCIUTO] Utente: @{user.username if user else 'N/A'} ({chat_id}): '{text}'")
+
+        if text.startswith("/"):
+            reply = (
+                "❓ <b>Comando non riconosciuto.</b>\n\n"
+                "Ti invito ad utilizzare i comandi preimpostati dal menu oppure digita /help per consultare la guida completa.\n\n"
+                "📌 <b>Comandi principali:</b>\n"
+                "• /free - Giochi 100% gratis attivi\n"
+                "• /deals - Tutte le offerte (gratis e sconti)\n"
+                "• /nofilter-free - Tutti i giochi gratis senza filtri\n"
+                "• /settings - Personalizza filtri, store e prezzi\n"
+                "• /help - Elenco di tutti i comandi"
+            )
+        else:
+            reply = (
+                "🤖 <b>Comando non riconosciuto.</b>\n\n"
+                "Ti invito ad utilizzare i comandi preimpostati per interagire con il bot.\n\n"
+                "💡 <i>Digita /help oppure tocca il pulsante del menu per visualizzare tutti i comandi disponibili!</i>"
+            )
+
+        await msg.reply_text(reply, parse_mode=ParseMode.HTML)
 
     # --- Comandi Utente ---
 
