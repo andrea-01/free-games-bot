@@ -48,11 +48,17 @@ class GameDeal:
         return extract_price_float(self.stock_price)
 
     def clean_title(self) -> str:
-        """Strip trailing giveaway suffixes from titles."""
-        clean = self.title
-        for suffix in [
-            "Giveaway", "Key Giveaway", "Offerta", "Gratis",
-            "(Epic Games)", "(Steam)", "(GOG)", "(Itch.io)", "(IndieGala)", "(itch.io)", "(itchio)"
-        ]:
-            clean = clean.replace(suffix, "").strip()
-        return clean.strip(" -:")
+        """Strip trailing store tags and giveaway/key suffixes from titles."""
+        clean = re.sub(
+            r"\((Steam|Epic Games|GOG|Itch\.io|itchio|IndieGala|Stove|PC|DRM-Free|Ubisoft|EA|itch\.io)\)",
+            "",
+            self.title,
+            flags=re.IGNORECASE,
+        )
+        clean = re.sub(
+            r"\b(Steam\s+Key|Beta\s+Key|Key\s+Giveaways?|Key|Giveaways?|Free|Gratis|Offerta)\b",
+            "",
+            clean,
+            flags=re.IGNORECASE,
+        )
+        return re.sub(r"\s+", " ", clean).strip(" -:–")

@@ -48,31 +48,24 @@ def format_deal_message(deal: GameDeal) -> Tuple[str, InlineKeyboardMarkup]:
         if deal.end_date:
             lines.append(f"⏳ <b>Termina il:</b> {html.escape(deal.end_date)}")
 
-    # Metadata lines
-    meta_lines = []
-    if deal.release_year:
-        meta_lines.append(f"📅 <b>Anno:</b> {html.escape(deal.release_year)}")
+    # Metadata lines (sempre visualizzati!)
+    lines.append("")
+    year_str = deal.release_year if deal.release_year else "N/D"
+    lines.append(f"📅 <b>Anno:</b> {html.escape(year_str)}")
 
-    if deal.genres:
-        genres_str = ", ".join(deal.genres[:4])
-        meta_lines.append(f"🏷️ <b>Generi:</b> {html.escape(genres_str)}")
+    genres_str = ", ".join(deal.genres[:4]) if deal.genres else "Indie / Generale"
+    lines.append(f"🏷️ <b>Generi:</b> {html.escape(genres_str)}")
 
-    if deal.player_modes:
-        modes_str = ", ".join(deal.player_modes[:3])
-        meta_lines.append(f"👥 <b>Modalità:</b> {html.escape(modes_str)}")
+    modes_str = ", ".join(deal.player_modes[:3]) if deal.player_modes else "Giocatore singolo"
+    lines.append(f"👥 <b>Modalità:</b> {html.escape(modes_str)}")
 
-    if meta_lines:
-        lines.append("")
-        lines.extend(meta_lines)
-
-    # Description (truncated to ensure within Telegram caption limit)
-    if deal.description:
-        desc = deal.description.strip()
-        max_desc_len = 300
-        if len(desc) > max_desc_len:
-            desc = desc[:max_desc_len].rsplit(" ", 1)[0] + "..."
-        lines.append("")
-        lines.append(f"📖 <i>{html.escape(desc)}</i>")
+    # Description (sempre visualizzata)
+    desc = (deal.description or f"Approfitta dell'offerta per {deal.clean_title()} disponibile su {deal.store}.").strip()
+    max_desc_len = 320
+    if len(desc) > max_desc_len:
+        desc = desc[:max_desc_len].rsplit(" ", 1)[0] + "..."
+    lines.append("")
+    lines.append(f"📖 <i>{html.escape(desc)}</i>")
 
     caption = "\n".join(lines)
     if len(caption) > MAX_CAPTION_LENGTH:
