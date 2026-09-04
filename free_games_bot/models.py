@@ -4,18 +4,18 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 def extract_price_float(price_str: Optional[str]) -> float:
-    """Extract float numeric value from price strings like '19,99 €', '$9.99', 'Gratis', etc."""
+    """Extract float numeric value from price strings like '19,99 €', '$9.99', '10', 'Gratis', etc."""
     if not price_str:
         return 0.0
     s = price_str.lower().strip()
-    if any(word in s for word in ["gratis", "free", "omaggio", "0", "0.00", "0,00"]):
+    if any(word in s for word in ["gratis", "free", "omaggio"]):
         return 0.0
-    # Match first floating point number
-    match = re.search(r"(\d+([.,]\d+)?)", s)
+    # Match first integer or floating point number
+    match = re.search(r"(\d+(?:[.,]\d+)?)", s)
     if match:
         num_str = match.group(1).replace(",", ".")
         try:
-            return float(num_str)
+            return max(0.0, float(num_str))
         except ValueError:
             return 0.0
     return 0.0
