@@ -160,10 +160,11 @@ class FreeGamesBot:
             "📌 <b>Comandi principali:</b>\n"
             "/free - Mostra i giochi 100% gratis secondo i tuoi filtri\n"
             "/deals - Mostra tutte le offerte (gratis e sconti) filtrate\n"
-            "/nofilter-free - Tutti i giochi gratuiti disponibili senza filtri\n"
+            "/nofilter_free - Tutti i giochi gratuiti disponibili senza filtri\n"
             "/settings - Configura store, generi, soglie di prezzo e qualità\n"
             "/epic & /steam - Promozioni per store\n"
             "/check - Cerca nuovi arrivi non ancora ricevuti\n"
+            "/subscribe - Abilitati alle notifiche periodiche\n"
             "/help - Guida completa ai comandi"
         )
         if update.effective_message:
