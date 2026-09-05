@@ -97,8 +97,10 @@ class DealManager:
         sorted_deals = sorted(deals, key=priority)
 
         for deal in sorted_deals:
-            norm_title = deal.clean_title().lower()
-            key = (norm_title, deal.store.lower())
+            if deal.store.lower() == "steam" and deal.steam_appid:
+                key = (f"steam_{deal.steam_appid}", "steam")
+            else:
+                key = (deal.canonical_title(), deal.store.lower())
 
             if key in seen_deals:
                 existing = seen_deals[key]

@@ -65,3 +65,17 @@ class GameDeal:
             flags=re.IGNORECASE,
         )
         return re.sub(r"\s+", " ", clean).strip(" -:–")
+
+    def canonical_title(self) -> str:
+        """Normalized alphanumeric title without edition/version subtitles for deduplication."""
+        c = self.clean_title()
+        # Strip edition, remastered, and cut suffixes (e.g. ' - Tower Edition', ': Deluxe Edition')
+        c = re.sub(
+            r"(?:[-:–]\s*|\b(?:tower|standard|enhanced|deluxe|definitive|special|complete|anniversary|goty|game of the year|gold|silver|collector\'?s?|digital|legendary|remastered|pitter patter|ultimate)\s+)?(?:edition|remastered|director\'?s? cut|final cut|goty)\b.*$",
+            "",
+            c,
+            flags=re.IGNORECASE,
+        )
+        c = re.sub(r"[-:–]\s*(?:remastered|director\'?s? cut|final cut|goty)\b.*$", "", c, flags=re.IGNORECASE)
+        alnum = re.sub(r"[^a-z0-9]", "", c.lower())
+        return alnum if alnum else self.clean_title().lower().strip()

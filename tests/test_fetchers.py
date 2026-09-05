@@ -200,12 +200,31 @@ async def test_deal_manager_deduplication():
         store_url="https://store.steampowered.com/app/400/?l=italian",
     )
 
-    deduped = manager._deduplicate_deals([deal_gp_duplicate, deal_epic, deal_cs_beach, deal_gp_beach, deal_steam])
-    assert len(deduped) == 3
+    deal_gp_norush = GameDeal(
+        id="gp_norush",
+        title="NoRush! - Tower Edition (Epic Games) Giveaways",
+        store="Epic Games",
+        stock_price="2,99 €",
+        sale_price_value=0.0,
+        store_url="https://gamerpower.com/open/norush",
+        end_date="2026-09-09",
+    )
+    deal_cs_norush = GameDeal(
+        id="cs_norush",
+        title="NoRush!",
+        store="Epic Games",
+        stock_price="2,49 €",
+        sale_price_value=0.0,
+        store_url="https://cheapshark.com/redirect?norush",
+    )
+
+    deduped = manager._deduplicate_deals([deal_gp_duplicate, deal_epic, deal_cs_beach, deal_gp_beach, deal_steam, deal_gp_norush, deal_cs_norush])
+    assert len(deduped) == 4
     stores_and_titles = [(d.clean_title(), d.store) for d in deduped]
     assert ("Alone With You", "Epic Games") in stores_and_titles
     assert ("Beach Invasion 1944", "Epic Games") in stores_and_titles
     assert ("Portal", "Steam") in stores_and_titles
+    assert any("NoRush" in title for title, store in stores_and_titles if store == "Epic Games")
 
     # Verify Beach Invasion merged GamerPower URL/end_date and CheapShark rating
     beach = next(d for d in deduped if d.clean_title() == "Beach Invasion 1944")
@@ -213,3 +232,8 @@ async def test_deal_manager_deduplication():
     assert beach.end_date == "2026-09-07"
     assert beach.rating_percent == 84
     assert beach.reviews_count == 1000
+
+    # Verify NoRush deduplicated to 1 item
+    norush_matches = [d for d in deduped if "NoRush" in d.clean_title()]
+    assert len(norush_matches) == 1
+    assert norush_matches[0].end_date == "2026-09-09"

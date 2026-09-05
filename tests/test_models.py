@@ -67,3 +67,23 @@ def test_extract_price_float():
     assert extract_price_float(None) == 0.0
     assert extract_price_float("") == 0.0
 
+def test_canonical_title():
+    deal1 = GameDeal(
+        id="gp_1",
+        title="NoRush! - Tower Edition (Epic Games) Giveaways",
+        store="Epic Games",
+        stock_price="Gratis",
+        store_url="https://gamerpower.com",
+    )
+    deal2 = GameDeal(
+        id="cs_1",
+        title="NoRush!",
+        store="Epic Games",
+        stock_price="2,49 €",
+        store_url="https://cheapshark.com",
+    )
+    assert deal1.canonical_title() == "norush"
+    assert deal2.canonical_title() == "norush"
+    assert deal1.canonical_title() == deal2.canonical_title()
+
+
