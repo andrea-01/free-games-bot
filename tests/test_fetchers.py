@@ -126,6 +126,35 @@ async def test_cheapshark_fetcher_parsing():
         assert deal.store_url == "https://store.steampowered.com/app/8870/?l=italian"
 
 @pytest.mark.asyncio
+async def test_cheapshark_fetcher_non_steam_url():
+    fetcher = CheapSharkFetcher()
+    mock_payload = [
+        {
+            "dealID": "dealEpic999",
+            "title": "Beach Invasion 1944",
+            "salePrice": "0.00",
+            "normalPrice": "9.99",
+            "storeID": "25",  # Epic Games
+            "steamAppID": "2209680",
+            "thumb": "https://img.cheapshark.com/beach.jpg",
+        }
+    ]
+
+    with patch.object(fetcher, "fetch_json", new_callable=AsyncMock) as mock_fetch:
+        mock_fetch.return_value = mock_payload
+        deals = await fetcher.fetch_deals(upper_price=5.0)
+
+        assert len(deals) == 1
+        deal = deals[0]
+        assert deal.title == "Beach Invasion 1944"
+        assert deal.store == "Epic Games"
+        # Must NOT point to Steam store!
+        assert "steampowered.com" not in deal.store_url
+        assert deal.store_url == "https://www.cheapshark.com/redirect?dealID=dealEpic999"
+        # But steam_appid must still be saved for metadata enrichment
+        assert deal.steam_appid == 2209680
+
+@pytest.mark.asyncio
 async def test_deal_manager_deduplication():
     manager = DealManager()
 
@@ -142,6 +171,26 @@ async def test_deal_manager_deduplication():
         store="Epic Games",
         stock_price="9,99 €",
         store_url="https://gamerpower.com/open/alone-with-you",
+        end_date="2026-09-10",
+    )
+    deal_cs_beach = GameDeal(
+        id="cs_beach",
+        title="Beach Invasion 1944",
+        store="Epic Games",
+        stock_price="9,99 €",
+        sale_price_value=0.0,
+        store_url="https://www.cheapshark.com/redirect?dealID=beach",
+        rating_percent=84,
+        reviews_count=1000,
+    )
+    deal_gp_beach = GameDeal(
+        id="gp_beach",
+        title="Beach Invasion 1944 (Epic Games) Giveaway",
+        store="Epic Games",
+        stock_price="9,99 €",
+        sale_price_value=0.0,
+        store_url="https://gamerpower.com/open/beach-invasion-1944",
+        end_date="2026-09-07",
     )
     deal_steam = GameDeal(
         id="steam_portal",
@@ -151,8 +200,16 @@ async def test_deal_manager_deduplication():
         store_url="https://store.steampowered.com/app/400/?l=italian",
     )
 
-    deduped = manager._deduplicate_deals([deal_gp_duplicate, deal_epic, deal_steam])
-    assert len(deduped) == 2
+    deduped = manager._deduplicate_deals([deal_gp_duplicate, deal_epic, deal_cs_beach, deal_gp_beach, deal_steam])
+    assert len(deduped) == 3
     stores_and_titles = [(d.clean_title(), d.store) for d in deduped]
     assert ("Alone With You", "Epic Games") in stores_and_titles
+    assert ("Beach Invasion 1944", "Epic Games") in stores_and_titles
     assert ("Portal", "Steam") in stores_and_titles
+
+    # Verify Beach Invasion merged GamerPower URL/end_date and CheapShark rating
+    beach = next(d for d in deduped if d.clean_title() == "Beach Invasion 1944")
+    assert beach.store_url == "https://gamerpower.com/open/beach-invasion-1944"
+    assert beach.end_date == "2026-09-07"
+    assert beach.rating_percent == 84
+    assert beach.reviews_count == 1000

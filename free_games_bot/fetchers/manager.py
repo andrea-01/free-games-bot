@@ -2,7 +2,7 @@
 import asyncio
 import logging
 import time
-from typing import List, Optional, Set
+from typing import List, Optional, Set, Dict, Tuple
 from free_games_bot.models import GameDeal
 from free_games_bot.fetchers.epic import EpicGamesFetcher
 from free_games_bot.fetchers.gamerpower import GamerPowerFetcher
@@ -69,19 +69,30 @@ class DealManager:
             return list(enriched_deals)
 
     def _deduplicate_deals(self, deals: List[GameDeal]) -> List[GameDeal]:
-        """Deduplicate deals across sources by normalized title and store."""
-        seen_keys = set()
+        """Deduplicate deals across sources by normalized title and store, merging metadata."""
+        seen_deals: Dict[Tuple[str, str], GameDeal] = {}
         deduped: List[GameDeal] = []
 
-        # Priority order: direct Epic Games first, then Steam, then CheapShark, then GamerPower
+        # Priority order:
+        # For free giveaways (<= 0.01): direct Epic Games first, then GamerPower (dedicated giveaway data), then Steam, then CheapShark
+        # For discounted deals (> 0.01): Steam first, then CheapShark, then GamerPower
         def priority(d: GameDeal) -> int:
-            if d.id.startswith("epic_"):
-                return 0
-            if "steam" in d.store.lower():
-                return 1
-            if d.id.startswith("cs_"):
+            if d.sale_price_value <= 0.01:
+                if d.id.startswith("epic_"):
+                    return 0
+                if d.id.startswith("gp_"):
+                    return 1
+                if "steam" in d.store.lower():
+                    return 2
+                if d.id.startswith("cs_"):
+                    return 3
+                return 4
+            else:
+                if "steam" in d.store.lower():
+                    return 0
+                if d.id.startswith("cs_"):
+                    return 1
                 return 2
-            return 3
 
         sorted_deals = sorted(deals, key=priority)
 
@@ -89,10 +100,24 @@ class DealManager:
             norm_title = deal.clean_title().lower()
             key = (norm_title, deal.store.lower())
 
-            if key in seen_keys:
+            if key in seen_deals:
+                existing = seen_deals[key]
+                # Merge metadata from duplicate into existing deal
+                if not existing.end_date and deal.end_date:
+                    existing.end_date = deal.end_date
+                if not existing.description and deal.description:
+                    existing.description = deal.description
+                if not existing.cover_url and deal.cover_url:
+                    existing.cover_url = deal.cover_url
+                if existing.rating_percent is None and deal.rating_percent is not None:
+                    existing.rating_percent = deal.rating_percent
+                if existing.reviews_count is None and deal.reviews_count is not None:
+                    existing.reviews_count = deal.reviews_count
+                if existing.steam_appid is None and deal.steam_appid is not None:
+                    existing.steam_appid = deal.steam_appid
                 continue
 
-            seen_keys.add(key)
+            seen_deals[key] = deal
             deduped.append(deal)
 
         return deduped
@@ -108,6 +133,13 @@ class DealManager:
                 sgdb_cover = await self.steamgriddb_client.get_cover_url(deal)
                 if sgdb_cover:
                     deal.cover_url = sgdb_cover
+
+            # Safeguard: A deal on a non-Steam store should NEVER have a store_url pointing to Steam!
+            if deal.store.lower() != "steam" and "steampowered.com" in (deal.store_url or "").lower():
+                logger.warning(f"Deal '{deal.title}' on '{deal.store}' had invalid Steam URL '{deal.store_url}'. Correcting...")
+                if deal.id.startswith("cs_"):
+                    cs_id = deal.id.replace("cs_", "")
+                    deal.store_url = f"https://www.cheapshark.com/redirect?dealID={cs_id}"
         except Exception as e:
             logger.debug(f"Enrichment error for {deal.title}: {e}")
 

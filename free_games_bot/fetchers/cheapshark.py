@@ -63,14 +63,14 @@ class CheapSharkFetcher(BaseFetcher):
 
             store_id = str(item.get("storeID", "1"))
             store_name = STORE_MAP.get(store_id, "PC Deal")
-
             steam_app_id = item.get("steamAppID")
-            if steam_app_id and steam_app_id != "0":
+            appid_int = int(steam_app_id) if steam_app_id and steam_app_id != "0" else None
+
+            # Link directly to Steam store only if the deal is actually on Steam
+            if store_name.lower() == "steam" and appid_int:
                 store_url = f"https://store.steampowered.com/app/{steam_app_id}/?l=italian"
-                appid_int = int(steam_app_id)
             else:
                 store_url = f"https://www.cheapshark.com/redirect?dealID={deal_id}"
-                appid_int = None
 
             stock_price_str = format_price_eur(normal_price)
 
