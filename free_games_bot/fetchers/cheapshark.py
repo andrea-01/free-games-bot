@@ -16,8 +16,16 @@ STORE_MAP = {
     "7": "GOG",
     "8": "EA / Origin",
     "11": "Humble Store",
+    "13": "Ubisoft",
+    "15": "Fanatical",
+    "21": "WinGameStore",
+    "23": "GameBillet",
     "25": "Epic Games",
+    "27": "Gamesplanet",
+    "28": "Gamesload",
+    "30": "IndieGala",
     "31": "Blizzard Battle.net",
+    "35": "DreamGame",
 }
 
 class CheapSharkFetcher(BaseFetcher):

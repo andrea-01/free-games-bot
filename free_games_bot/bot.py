@@ -1,7 +1,7 @@
 """Telegram bot handlers, Italian localization, activity logging, and filtering by store, category, and price."""
 import logging
 from pathlib import Path
-from typing import Optional, Set
+from typing import List, Optional, Set
 from telegram import Update
 from telegram.constants import ParseMode
 from telegram.request import HTTPXRequest
@@ -581,25 +581,15 @@ class FreeGamesBot:
             await send_deal_message(context.bot, chat_id, deal)
             await self.db.mark_deal_sent(deal.id, chat_id, deal.title, deal.store)
 
-    async def deals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Gestisce /deals: fornisce l'elenco di tutte le offerte (gratis e sconti) corrispondenti ai filtri."""
-        chat_id = update.effective_chat.id
-        user = update.effective_user
-        logger.info(f"[COMANDO /deals] Utente: @{user.username if user else 'N/A'} ({chat_id})")
-
-        msg = update.effective_message
-        if not msg:
-            return
-        status_msg = await msg.reply_text("🔍 <i>Ricerca offerte e promozioni secondo i tuoi filtri...</i>", parse_mode=ParseMode.HTML)
-
+    async def get_filtered_deals_for_user(self, chat_id: int, force_refresh: bool = False) -> List[GameDeal]:
+        """Recupera e filtra tutte le offerte attive in base ai filtri completi dell'utente."""
         min_stock, max_sale = await self.db.get_user_prices(chat_id)
         all_deals = await self.deal_manager.fetch_all_deals(
             max_sale_price=max_sale,
             min_stock_price=min_stock,
+            force_refresh=force_refresh,
         )
-
         active_deals = [d for d in all_deals if not d.is_upcoming]
-
         filtered_deals = []
         for d in active_deals:
             if not await self.db.is_deal_allowed_for_user(chat_id, d.store):
@@ -611,6 +601,20 @@ class FreeGamesBot:
             if not await self.db.is_deal_quality_allowed(chat_id, d.rating_percent, d.reviews_count, d.store):
                 continue
             filtered_deals.append(d)
+        return filtered_deals
+
+    async def deals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Gestisce /deals: fornisce l'elenco di tutte le offerte (gratis e sconti) corrispondenti ai filtri."""
+        chat_id = update.effective_chat.id
+        user = update.effective_user
+        logger.info(f"[COMANDO /deals] Utente: @{user.username if user else 'N/A'} ({chat_id})")
+
+        msg = update.effective_message
+        if not msg:
+            return
+        status_msg = await msg.reply_text("🔍 <i>Ricerca offerte e promozioni secondo i tuoi filtri...</i>", parse_mode=ParseMode.HTML)
+
+        filtered_deals = await self.get_filtered_deals_for_user(chat_id)
 
         if not filtered_deals:
             await status_msg.edit_text(
@@ -733,7 +737,7 @@ class FreeGamesBot:
             await self.db.mark_deal_sent(deal.id, chat_id, deal.title, deal.store)
 
     async def recap_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Gestisce /recap: genera su richiesta il riepilogo serale delle offerte pertinenti attive."""
+        """Gestisce /recap: genera su richiesta il riepilogo delle offerte pertinenti attive."""
         chat_id = update.effective_chat.id
         user = update.effective_user
         logger.info(f"[COMANDO /recap] Utente: @{user.username if user else 'N/A'} ({chat_id})")
@@ -741,29 +745,11 @@ class FreeGamesBot:
         msg = update.effective_message
         if not msg:
             return
-        status_msg = await msg.reply_text("🌙 <i>Preparazione del recap delle offerte in base ai tuoi interessi...</i>", parse_mode=ParseMode.HTML)
+        status_msg = await msg.reply_text("📊 <i>Preparazione del recap delle offerte in base ai tuoi interessi...</i>", parse_mode=ParseMode.HTML)
 
-        min_stock, max_sale = await self.db.get_user_prices(chat_id)
-        all_deals = await self.deal_manager.fetch_all_deals(
-            max_sale_price=max_sale,
-            min_stock_price=min_stock,
-        )
+        filtered_deals = await self.get_filtered_deals_for_user(chat_id)
 
-        active_deals = [d for d in all_deals if not d.is_upcoming]
-
-        filtered_deals = []
-        for d in active_deals:
-            if not await self.db.is_deal_allowed_for_user(chat_id, d.store):
-                continue
-            if not await self.db.is_deal_category_allowed(chat_id, d.genres):
-                continue
-            if not await self.db.is_deal_price_allowed(chat_id, d.stock_price_value, d.sale_price_value):
-                continue
-            if not await self.db.is_deal_quality_allowed(chat_id, d.rating_percent, d.reviews_count, d.store):
-                continue
-            filtered_deals.append(d)
-
-        chunks = format_evening_recap(filtered_deals)
+        chunks = format_evening_recap(filtered_deals, is_manual=True)
         try:
             await status_msg.delete()
         except Exception:
@@ -884,23 +870,12 @@ class FreeGamesBot:
                 logger.info("[BACKGROUND RECAP] Nessun iscritto attivo.")
                 return
 
-            all_deals = await self.deal_manager.fetch_all_deals(force_refresh=True)
-            active_deals = [d for d in all_deals if not d.is_upcoming]
+            # Refresh forzato iniziale del pool offerte
+            await self.deal_manager.fetch_all_deals(force_refresh=True)
 
             for chat_id in subscribers:
-                user_deals = []
-                for deal in active_deals:
-                    if not await self.db.is_deal_allowed_for_user(chat_id, deal.store):
-                        continue
-                    if not await self.db.is_deal_category_allowed(chat_id, deal.genres):
-                        continue
-                    if not await self.db.is_deal_price_allowed(chat_id, deal.stock_price_value, deal.sale_price_value):
-                        continue
-                    if not await self.db.is_deal_quality_allowed(chat_id, deal.rating_percent, deal.reviews_count, deal.store):
-                        continue
-                    user_deals.append(deal)
-
-                chunks = format_evening_recap(user_deals)
+                user_deals = await self.get_filtered_deals_for_user(chat_id, force_refresh=False)
+                chunks = format_evening_recap(user_deals, is_manual=False)
                 for chunk in chunks:
                     try:
                         await context.bot.send_message(

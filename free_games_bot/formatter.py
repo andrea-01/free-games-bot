@@ -159,7 +159,11 @@ def build_main_settings_keyboard(is_subscribed: bool = True) -> InlineKeyboardMa
         ]
     ])
 
-def format_evening_recap(deals: List[GameDeal], is_nofilter: bool = False) -> List[str]:
+def format_evening_recap(
+    deals: List[GameDeal],
+    is_nofilter: bool = False,
+    is_manual: bool = False,
+) -> List[str]:
     """
     Format active deals into a compact recap list (divided into Free and Discounted).
     Each game occupies at most 2 lines:
@@ -170,18 +174,26 @@ def format_evening_recap(deals: List[GameDeal], is_nofilter: bool = False) -> Li
     free_deals = [d for d in deals if d.sale_price_value <= 0.01 and not d.is_upcoming]
     discounted_deals = [d for d in deals if d.sale_price_value > 0.01 and not d.is_upcoming]
 
-    date_str = datetime.now(ZoneInfo("Europe/Rome")).strftime("%d/%m/%Y")
+    now_rome = datetime.now(ZoneInfo("Europe/Rome"))
+    date_str = now_rome.strftime("%d/%m/%Y")
+    datetime_str = now_rome.strftime("%d/%m/%Y, %H:%M")
 
     if is_nofilter:
         header = (
-            f"🌍 <b>RECAP OFFERTE PC (SENZA FILTRI)</b> — <i>{date_str}</i>\n"
+            f"🌍 <b>RECAP OFFERTE PC (SENZA FILTRI)</b> — <i>{datetime_str}</i>\n"
             "<i>Ecco l'elenco completo di tutte le offerte e giochi gratis attivi senza filtri:</i>\n\n"
         )
         footer = "\n💡 <i>Visualizza il recap personalizzato secondo i tuoi filtri con /recap</i>"
+    elif is_manual:
+        header = (
+            f"📊 <b>RECAP OFFERTE PC</b> — <i>{datetime_str}</i>\n"
+            "<i>Ecco il riepilogo delle migliori offerte attive secondo i tuoi filtri:</i>\n\n"
+        )
+        footer = "\n💡 <i>Personalizza i tuoi filtri o disattiva le notifiche con /settings</i>"
     else:
         header = (
             f"🌙 <b>RECAP SERALE OFFERTE PC</b> — <i>{date_str}</i>\n"
-            "<i>Ecco il riepilogo delle migliori offerte attive secondo i tuoi filtri:</i>\n\n"
+            "<i>Ecco il riepilogo serale delle migliori offerte attive secondo i tuoi filtri:</i>\n\n"
         )
         footer = "\n💡 <i>Personalizza o disattiva il recap serale dalle impostazioni con /settings</i>"
 

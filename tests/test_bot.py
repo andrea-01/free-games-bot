@@ -82,7 +82,8 @@ async def test_recap_command(tmp_path):
     # Should have sent status message and then recap chunk
     assert update.effective_message.reply_text.call_count == 2
     sent_recap = update.effective_message.reply_text.call_args[0][0]
-    assert "RECAP SERALE OFFERTE" in sent_recap
+    assert "RECAP OFFERTE PC" in sent_recap
+    assert "RECAP SERALE" not in sent_recap
     assert "Test Game 1" in sent_recap
     assert "Riscatta su Epic Games" in sent_recap
 
@@ -164,4 +165,45 @@ async def test_nofilter_recap_command(tmp_path):
     assert "RECAP OFFERTE PC (SENZA FILTRI)" in sent_recap
     assert "Super Indie Adventures" in sent_recap
     assert "Riscatta su Steam" in sent_recap
+
+@pytest.mark.asyncio
+async def test_evening_recap_job(tmp_path):
+    from unittest.mock import AsyncMock, MagicMock
+    from free_games_bot.database import Database
+    from free_games_bot.fetchers.manager import DealManager
+    from free_games_bot.models import GameDeal
+
+    db = Database(db_path=str(tmp_path / "test_evening_recap_job.db"))
+    await db.init_db()
+
+    chat_id = 112233
+    await db.add_subscriber(chat_id, "sub_user", "Sub")
+
+    deal_mgr = DealManager()
+    sample_deal = GameDeal(
+        id="test-deal-evening",
+        title="Night Warrior",
+        store="Epic Games",
+        stock_price="24,99 €",
+        sale_price_value=0.0,
+        store_url="https://store.epicgames.com/test",
+        rating_percent=90,
+        reviews_count=3000,
+        genres=["Action"],
+    )
+    deal_mgr.fetch_all_deals = AsyncMock(return_value=[sample_deal])
+
+    bot = FreeGamesBot(db=db, deal_manager=deal_mgr)
+
+    context = MagicMock()
+    context.bot.send_message = AsyncMock()
+
+    await bot.evening_recap_job(context)
+
+    context.bot.send_message.assert_called_once()
+    call_kwargs = context.bot.send_message.call_args[1]
+    assert call_kwargs["chat_id"] == chat_id
+    assert "RECAP SERALE OFFERTE PC" in call_kwargs["text"]
+    assert "Night Warrior" in call_kwargs["text"]
+
 

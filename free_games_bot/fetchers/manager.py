@@ -23,6 +23,7 @@ class DealManager:
 
         self._cached_deals: List[GameDeal] = []
         self._last_fetch_time: float = 0.0
+        self._last_upper_price: float = 0.0
         self._lock = asyncio.Lock()
 
     async def fetch_all_deals(
@@ -34,18 +35,16 @@ class DealManager:
         """Fetch, deduplicate, and enrich current free and discounted game deals."""
         async with self._lock:
             now = time.time()
-            if not force_refresh and self._cached_deals and (now - self._last_fetch_time < self.cache_ttl) and max_sale_price <= 0:
+            upper_price = max(20.0, max_sale_price)
+            if not force_refresh and self._cached_deals and (now - self._last_fetch_time < self.cache_ttl) and (upper_price <= self._last_upper_price):
                 return self._cached_deals
 
             logger.info("Fetching game deals from Epic Games, GamerPower, and CheapShark...")
-
             tasks = [
                 self.epic_fetcher.fetch_deals(include_upcoming=True),
                 self.gamerpower_fetcher.fetch_deals(),
+                self.cheapshark_fetcher.fetch_deals(upper_price=upper_price, min_stock_price=0.0),
             ]
-
-            if max_sale_price > 0:
-                tasks.append(self.cheapshark_fetcher.fetch_deals(upper_price=max_sale_price, min_stock_price=min_stock_price))
 
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -63,9 +62,9 @@ class DealManager:
             enrich_tasks = [self._enrich_deal(deal) for deal in deduped]
             enriched_deals = await asyncio.gather(*enrich_tasks)
 
-            if max_sale_price <= 0:
-                self._cached_deals = list(enriched_deals)
-                self._last_fetch_time = now
+            self._cached_deals = list(enriched_deals)
+            self._last_fetch_time = now
+            self._last_upper_price = upper_price
 
             return list(enriched_deals)
 

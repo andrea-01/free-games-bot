@@ -231,3 +231,25 @@ def test_format_evening_recap_nofilter():
     assert "RECAP OFFERTE PC (SENZA FILTRI)" in recap[0]
     assert "Death Stranding" in recap[0]
     assert "Riscatta su Epic Games" in recap[0]
+
+def test_format_recap_manual():
+    from free_games_bot.formatter import format_evening_recap
+
+    free_deal = GameDeal(
+        id="free-1",
+        title="Death Stranding",
+        store="Epic Games",
+        stock_price="39,99 €",
+        sale_price_value=0.0,
+        store_url="https://store.epicgames.com/death-stranding",
+        rating_percent=93,
+        reviews_count=85000,
+        genres=["Action"],
+    )
+    recap = format_evening_recap([free_deal], is_manual=True)
+    assert len(recap) == 1
+    # Check header has RECAP OFFERTE PC and timestamp, NOT RECAP SERALE
+    assert "RECAP OFFERTE PC" in recap[0]
+    assert "RECAP SERALE" not in recap[0]
+    assert ":" in recap[0]  # Contains HH:MM
+
